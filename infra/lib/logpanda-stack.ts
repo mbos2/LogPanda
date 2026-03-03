@@ -84,6 +84,14 @@ export class LogpandaStack extends cdk.Stack {
       partitionKey: { name: "projectId", type: dynamodb.AttributeType.STRING },
     });
 
+    apiKeysTable.addGlobalSecondaryIndex({
+      indexName: "keyHash-index",
+      partitionKey: {
+        name: "keyHash",
+        type: dynamodb.AttributeType.STRING,
+      },
+    });
+
     const auditLogsTable = new dynamodb.Table(this, "AuditLogsTable", {
       tableName: `logpanda-audit-logs-${envName}`,
       partitionKey: { name: "projectId", type: dynamodb.AttributeType.STRING },
