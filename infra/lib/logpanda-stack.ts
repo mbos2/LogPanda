@@ -219,8 +219,6 @@ export class LogpandaStack extends cdk.Stack {
       },
     );
 
-    organizationMembersTable.grantReadWriteData(organizationMembersLambda);
-
     const organizationMembersIntegration =
       new integrations.HttpLambdaIntegration(
         "OrganizationMembersIntegration",
@@ -239,8 +237,40 @@ export class LogpandaStack extends cdk.Stack {
       authorizer: jwtAuthorizer,
     });
 
+    const projectsLambda = new NodejsFunction(this, "ProjectsLambda", {
+      runtime: lambda.Runtime.NODEJS_24_X,
+      entry: path.join(
+        __dirname,
+        "../../apps/backend/lambdas/projects/handler.ts",
+      ),
+      handler: "handler",
+      environment: {
+        PROJECTS_TABLE_NAME: projectsTable.tableName,
+        ORGANIZATION_MEMBERS_TABLE_NAME: organizationMembersTable.tableName,
+      },
+    });
+
+    const projectsIntegration = new integrations.HttpLambdaIntegration(
+      "ProjectsIntegration",
+      projectsLambda,
+    );
+
+    httpApi.addRoutes({
+      path: "/projects",
+      methods: [
+        apigwv2.HttpMethod.GET,
+        apigwv2.HttpMethod.POST,
+        apigwv2.HttpMethod.PATCH,
+        apigwv2.HttpMethod.DELETE,
+      ],
+      integration: projectsIntegration,
+      authorizer: jwtAuthorizer,
+    });
+
     /** DB Access */
     organizationMembersTable.grantReadWriteData(organizationsLambda);
+    organizationMembersTable.grantReadData(projectsLambda);
     organizationsTable.grantReadWriteData(organizationsLambda);
+    projectsTable.grantReadWriteData(projectsLambda);
   }
 }

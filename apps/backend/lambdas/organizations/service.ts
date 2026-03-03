@@ -5,7 +5,7 @@ import {
   deleteOrganization,
 } from "./repository";
 import { Organization } from "./types";
-import { HttpError } from "./errors";
+import { HttpError } from "../shared/http-error";
 
 interface ServiceDeps {
   tableName: string;

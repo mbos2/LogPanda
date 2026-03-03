@@ -6,7 +6,7 @@ import {
   listMembers,
 } from "./repository";
 import { OrganizationRole, ORGANIZATION_ROLES } from "./types";
-import { HttpError } from "./errors";
+import { HttpError } from "../shared/http-error";
 
 interface ServiceDeps {
   tableName: string;

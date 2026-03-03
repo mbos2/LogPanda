@@ -4,24 +4,32 @@ import {
 } from "aws-lambda";
 import { z } from "zod";
 
-import { createOrganizationsService } from "./service";
+import { createProjectsService } from "./service";
 import {
-  CreateOrganizationSchema,
-  UpdateOrganizationSchema,
-  DeleteOrganizationSchema,
+  CreateProjectSchema,
+  UpdateProjectSchema,
+  DeleteProjectSchema,
 } from "./validation";
 
 import { extractJwtClaims } from "../shared/auth";
 import { HttpError } from "../shared/http-error";
 import { ok, errorResponse } from "../shared/response";
 
-const tableName = process.env.ORGANIZATIONS_TABLE_NAME;
+const projectsTableName = process.env.PROJECTS_TABLE_NAME;
+const membersTableName = process.env.ORGANIZATION_MEMBERS_TABLE_NAME;
 
-if (!tableName) {
-  throw new Error("Missing ORGANIZATIONS_TABLE_NAME");
+if (!projectsTableName) {
+  throw new Error("Missing PROJECTS_TABLE_NAME");
 }
 
-const service = createOrganizationsService({ tableName });
+if (!membersTableName) {
+  throw new Error("Missing ORGANIZATION_MEMBERS_TABLE_NAME");
+}
+
+const service = createProjectsService({
+  tableName: projectsTableName,
+  membersTableName,
+});
 
 export const handler = async (
   event: APIGatewayProxyEventV2WithJWTAuthorizer,
@@ -35,21 +43,37 @@ export const handler = async (
 
     switch (method) {
       case "POST": {
-        const body = CreateOrganizationSchema.parse(rawBody);
-        await service.create(body.name, sub);
+        const body = CreateProjectSchema.parse(rawBody);
+        await service.create(body.organizationId, body.name, sub);
         return ok();
       }
 
       case "PATCH": {
-        const body = UpdateOrganizationSchema.parse(rawBody);
-        await service.update(body.organizationId, body.name, sub);
+        const body = UpdateProjectSchema.parse(rawBody);
+        await service.update(body.projectId, body.name, sub);
         return ok();
       }
 
       case "DELETE": {
-        const body = DeleteOrganizationSchema.parse(rawBody);
-        await service.remove(body.organizationId, sub);
+        const body = DeleteProjectSchema.parse(rawBody);
+        await service.remove(body.projectId, sub);
         return ok();
+      }
+
+      case "GET": {
+        const organizationId = event.queryStringParameters?.organizationId;
+
+        if (!organizationId) {
+          throw new HttpError(
+            400,
+            "INVALID_REQUEST",
+            "organizationId required",
+          );
+        }
+
+        const projects = await service.list(organizationId, sub);
+
+        return ok(projects);
       }
 
       default:

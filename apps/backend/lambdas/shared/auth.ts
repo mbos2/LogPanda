@@ -1,5 +1,5 @@
 import { APIGatewayProxyEventV2WithJWTAuthorizer } from "aws-lambda";
-import { HttpError } from "../organizations/errors";
+import { HttpError } from "./http-error";
 
 export interface JwtClaims {
   sub: string;
