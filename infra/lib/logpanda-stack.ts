@@ -58,12 +58,6 @@ export class LogpandaStack extends cdk.Stack {
     );
 
     /** Dynamo DB */
-    const usersTable = new dynamodb.Table(this, "UsersTable", {
-      tableName: `logpanda-users-${envName}`,
-      partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: RemovalPolicy.DESTROY,
-    });
 
     const organizationsTable = new dynamodb.Table(this, "OrganizationsTable", {
       tableName: `logpanda-organizations-${envName}`,
