@@ -261,6 +261,133 @@ export class LogpandaStack extends cdk.Stack {
       authorizer: jwtAuthorizer,
     });
 
+    /** AUTH LAMBDAS */
+    const createAuthLambda = (id: string, assetPath: string) =>
+      new lambda.Function(this, id, {
+        runtime: lambda.Runtime.NODEJS_24_X,
+        handler: "handler.handler",
+        code: lambda.Code.fromAsset(
+          path.join(
+            __dirname,
+            "../../apps/backend/dist/lambdas/auth",
+            assetPath,
+          ),
+        ),
+        environment: {
+          USER_POOL_ID: userPool.userPoolId,
+          USER_POOL_CLIENT_ID: userPoolClient.userPoolClientId,
+        },
+      });
+    const registerLambda = createAuthLambda("RegisterLambda", "register");
+    const loginLambda = createAuthLambda("LoginLambda", "login");
+    const refreshLambda = createAuthLambda("RefreshLambda", "refresh");
+    const forgotPasswordLambda = createAuthLambda(
+      "ForgotPasswordLambda",
+      "forgot-password",
+    );
+    const confirmForgotPasswordLambda = createAuthLambda(
+      "ConfirmForgotPasswordLambda",
+      "confirm-forgot-password",
+    );
+    const logoutLambda = createAuthLambda("LogoutLambda", "logout");
+    const meLambda = createAuthLambda("MeLambda", "me");
+    const userByEmailLambda = createAuthLambda(
+      "UserByEmailLambda",
+      "user-by-email",
+    );
+
+    const registerIntegration = new integrations.HttpLambdaIntegration(
+      "RegisterIntegration",
+      registerLambda,
+    );
+
+    const loginIntegration = new integrations.HttpLambdaIntegration(
+      "LoginIntegration",
+      loginLambda,
+    );
+
+    const refreshIntegration = new integrations.HttpLambdaIntegration(
+      "RefreshIntegration",
+      refreshLambda,
+    );
+
+    const forgotPasswordIntegration = new integrations.HttpLambdaIntegration(
+      "ForgotPasswordIntegration",
+      forgotPasswordLambda,
+    );
+
+    const confirmForgotPasswordIntegration =
+      new integrations.HttpLambdaIntegration(
+        "ConfirmForgotPasswordIntegration",
+        confirmForgotPasswordLambda,
+      );
+
+    const logoutIntegration = new integrations.HttpLambdaIntegration(
+      "LogoutIntegration",
+      logoutLambda,
+    );
+
+    const meIntegration = new integrations.HttpLambdaIntegration(
+      "MeIntegration",
+      meLambda,
+    );
+
+    const userByEmailIntegration = new integrations.HttpLambdaIntegration(
+      "UserByEmailIntegration",
+      userByEmailLambda,
+    );
+
+    httpApi.addRoutes({
+      path: "/auth/register",
+      methods: [apigwv2.HttpMethod.POST],
+      integration: registerIntegration,
+    });
+
+    httpApi.addRoutes({
+      path: "/auth/login",
+      methods: [apigwv2.HttpMethod.POST],
+      integration: loginIntegration,
+    });
+
+    httpApi.addRoutes({
+      path: "/auth/refresh",
+      methods: [apigwv2.HttpMethod.POST],
+      integration: refreshIntegration,
+    });
+
+    httpApi.addRoutes({
+      path: "/auth/forgot-password",
+      methods: [apigwv2.HttpMethod.POST],
+      integration: forgotPasswordIntegration,
+    });
+
+    httpApi.addRoutes({
+      path: "/auth/confirm-forgot-password",
+      methods: [apigwv2.HttpMethod.POST],
+      integration: confirmForgotPasswordIntegration,
+    });
+
+    httpApi.addRoutes({
+      path: "/auth/logout",
+      methods: [apigwv2.HttpMethod.POST],
+      integration: logoutIntegration,
+      authorizer: jwtAuthorizer,
+    });
+
+    httpApi.addRoutes({
+      path: "/auth/me",
+      methods: [apigwv2.HttpMethod.GET],
+      integration: meIntegration,
+      authorizer: jwtAuthorizer,
+    });
+
+    httpApi.addRoutes({
+      path: "/auth/user-by-email",
+      methods: [apigwv2.HttpMethod.GET],
+      integration: userByEmailIntegration,
+      authorizer: jwtAuthorizer,
+    });
+
     /** DB Access */
     organizationMembersTable.grantReadWriteData(organizationsLambda);
     organizationMembersTable.grantReadData(projectsLambda);

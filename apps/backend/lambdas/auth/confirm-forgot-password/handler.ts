@@ -1,0 +1,47 @@
+import {
+  APIGatewayProxyEventV2,
+  APIGatewayProxyStructuredResultV2,
+} from "aws-lambda";
+import {
+  CognitoIdentityProviderClient,
+  ConfirmForgotPasswordCommand,
+} from "@aws-sdk/client-cognito-identity-provider";
+import { z } from "zod";
+
+import { ok } from "../../shared/response";
+import { handleError } from "../../shared/handle-error";
+
+const client = new CognitoIdentityProviderClient({});
+const clientId = process.env.USER_POOL_CLIENT_ID;
+
+if (!clientId) {
+  throw new Error("Missing USER_POOL_CLIENT_ID");
+}
+
+const Schema = z.object({
+  email: z.email(),
+  code: z.string().min(1),
+  newPassword: z.string().min(8),
+});
+
+export const handler = async (
+  event: APIGatewayProxyEventV2,
+): Promise<APIGatewayProxyStructuredResultV2> => {
+  try {
+    const body = event.body ? JSON.parse(event.body) : undefined;
+    const data = Schema.parse(body);
+
+    await client.send(
+      new ConfirmForgotPasswordCommand({
+        ClientId: clientId,
+        Username: data.email,
+        ConfirmationCode: data.code,
+        Password: data.newPassword,
+      }),
+    );
+
+    return ok();
+  } catch (err) {
+    return handleError(err);
+  }
+};
