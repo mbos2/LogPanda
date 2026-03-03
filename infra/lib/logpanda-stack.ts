@@ -122,11 +122,17 @@ export class LogpandaStack extends cdk.Stack {
       },
     );
 
-    const apiKeysTable = new dynamodb.Table(this, "ApiKeysTable", {
-      tableName: `logpanda-api-keys-${envName}`,
-      partitionKey: { name: "apiKeyId", type: dynamodb.AttributeType.STRING },
+    const apiKeysTable = new dynamodb.Table(this, "ProjectApiKeysTable", {
+      tableName: `logpanda-${envName}-project-api-keys`,
+      partitionKey: {
+        name: "apiKeyId",
+        type: dynamodb.AttributeType.STRING,
+      },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: RemovalPolicy.DESTROY,
+      removalPolicy:
+        envName === "prod"
+          ? cdk.RemovalPolicy.RETAIN
+          : cdk.RemovalPolicy.DESTROY,
     });
 
     apiKeysTable.addGlobalSecondaryIndex({
@@ -298,6 +304,43 @@ export class LogpandaStack extends cdk.Stack {
       authorizer: jwtAuthorizer,
     });
 
+    const projectApiKeysLambda = new NodejsFunction(
+      this,
+      "ProjectApiKeysLambda",
+      {
+        runtime: lambda.Runtime.NODEJS_20_X,
+        entry: path.join(
+          __dirname,
+          "../../apps/backend/lambdas/project-api-keys/handler.ts",
+        ),
+        handler: "handler",
+        bundling: {
+          minify: true,
+        },
+        environment: {
+          API_KEYS_TABLE_NAME: apiKeysTable.tableName,
+          ORGANIZATION_MEMBERS_TABLE_NAME: organizationMembersTable.tableName,
+          PROJECTS_TABLE_NAME: projectsTable.tableName,
+        },
+      },
+    );
+
+    const projectApiKeysIntegration = new integrations.HttpLambdaIntegration(
+      "ProjectApiKeysIntegration",
+      projectApiKeysLambda,
+    );
+
+    httpApi.addRoutes({
+      path: "/project-api-keys",
+      methods: [
+        apigwv2.HttpMethod.GET,
+        apigwv2.HttpMethod.POST,
+        apigwv2.HttpMethod.DELETE,
+      ],
+      integration: projectApiKeysIntegration,
+      authorizer: jwtAuthorizer,
+    });
+
     /** AUTH LAMBDAS */
     const createAuthLambda = (id: string, assetPath: string) =>
       new lambda.Function(this, id, {
@@ -429,9 +472,12 @@ export class LogpandaStack extends cdk.Stack {
     organizationMembersTable.grantReadWriteData(organizationsLambda);
     organizationMembersTable.grantReadData(projectsLambda);
     organizationMembersTable.grantReadData(projectMembersLambda);
+    organizationMembersTable.grantReadData(projectApiKeysLambda);
     organizationsTable.grantReadWriteData(organizationsLambda);
     projectsTable.grantReadWriteData(projectsLambda);
     projectsTable.grantReadData(projectMembersLambda);
+    projectsTable.grantReadData(projectApiKeysLambda);
     projectMembersTable.grantReadWriteData(projectMembersLambda);
+    apiKeysTable.grantReadWriteData(projectApiKeysLambda);
   }
 }
