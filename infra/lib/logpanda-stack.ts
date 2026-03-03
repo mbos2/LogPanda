@@ -261,6 +261,43 @@ export class LogpandaStack extends cdk.Stack {
       authorizer: jwtAuthorizer,
     });
 
+    const projectMembersLambda = new lambda.Function(
+      this,
+      "ProjectMembersLambda",
+      {
+        runtime: lambda.Runtime.NODEJS_24_X,
+        handler: "handler.handler",
+        code: lambda.Code.fromAsset(
+          path.join(
+            __dirname,
+            "../../apps/backend/dist/lambdas/project-members",
+          ),
+        ),
+        environment: {
+          PROJECT_MEMBERS_TABLE_NAME: projectMembersTable.tableName,
+          PROJECTS_TABLE_NAME: projectsTable.tableName,
+          ORGANIZATION_MEMBERS_TABLE_NAME: organizationMembersTable.tableName,
+        },
+      },
+    );
+
+    const projectMembersIntegration = new integrations.HttpLambdaIntegration(
+      "ProjectMembersIntegration",
+      projectMembersLambda,
+    );
+
+    httpApi.addRoutes({
+      path: "/project-members",
+      methods: [
+        apigwv2.HttpMethod.GET,
+        apigwv2.HttpMethod.POST,
+        apigwv2.HttpMethod.PATCH,
+        apigwv2.HttpMethod.DELETE,
+      ],
+      integration: projectMembersIntegration,
+      authorizer: jwtAuthorizer,
+    });
+
     /** AUTH LAMBDAS */
     const createAuthLambda = (id: string, assetPath: string) =>
       new lambda.Function(this, id, {
@@ -391,7 +428,10 @@ export class LogpandaStack extends cdk.Stack {
     /** DB Access */
     organizationMembersTable.grantReadWriteData(organizationsLambda);
     organizationMembersTable.grantReadData(projectsLambda);
+    organizationMembersTable.grantReadData(projectMembersLambda);
     organizationsTable.grantReadWriteData(organizationsLambda);
     projectsTable.grantReadWriteData(projectsLambda);
+    projectsTable.grantReadData(projectMembersLambda);
+    projectMembersTable.grantReadWriteData(projectMembersLambda);
   }
 }
