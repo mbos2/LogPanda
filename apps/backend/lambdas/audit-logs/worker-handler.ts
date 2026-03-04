@@ -18,20 +18,31 @@ const client = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(client);
 
 const tableName = process.env.AUDIT_LOGS_TABLE_NAME as string;
+const retentionDaysRaw = process.env.LOG_RETENTION_DAYS;
 
-if (!tableName) {
-  throw new Error("AUDIT_LOGS_TABLE_NAME not defined");
-}
+if (!tableName) throw new Error("AUDIT_LOGS_TABLE_NAME not defined");
 
-const MAX_BATCH_SIZE = 25; // DynamoDB limit
+const retentionDays =
+  retentionDaysRaw && retentionDaysRaw.length > 0
+    ? Number(retentionDaysRaw)
+    : null;
 
-function chunkArray<T>(array: T[], size: number): T[][];
+const MAX_BATCH_SIZE = 25;
+
 function chunkArray<T>(array: T[], size: number): T[][] {
   const chunks: T[][] = [];
   for (let i = 0; i < array.length; i += size) {
     chunks.push(array.slice(i, i + size));
   }
   return chunks;
+}
+
+function attachTTL(log: AuditLog) {
+  if (!retentionDays || retentionDays <= 0) return log;
+
+  const expiresAt = Math.floor(Date.now() / 1000) + retentionDays * 86400;
+
+  return { ...log, expiresAt };
 }
 
 async function batchWriteLogs(logs: AuditLog[]): Promise<void> {
@@ -41,7 +52,7 @@ async function batchWriteLogs(logs: AuditLog[]): Promise<void> {
     const command = new BatchWriteCommand({
       RequestItems: {
         [tableName]: chunk.map((log) => ({
-          PutRequest: { Item: log },
+          PutRequest: { Item: attachTTL(log) },
         })),
       },
     });
@@ -52,7 +63,6 @@ async function batchWriteLogs(logs: AuditLog[]): Promise<void> {
       response.UnprocessedItems &&
       Object.keys(response.UnprocessedItems).length > 0
     ) {
-      // Retry once for unprocessed items
       const retryCommand = new BatchWriteCommand({
         RequestItems: response.UnprocessedItems,
       });
@@ -87,7 +97,6 @@ function parseMessage(record: SQSRecord): AuditLog {
 
 export const handler = async (event: SQSEvent) => {
   const batchItemFailures: { itemIdentifier: string }[] = [];
-
   const logs: AuditLog[] = [];
 
   for (const record of event.Records) {
@@ -95,9 +104,7 @@ export const handler = async (event: SQSEvent) => {
       const parsed = parseMessage(record);
       logs.push(parsed);
     } catch {
-      batchItemFailures.push({
-        itemIdentifier: record.messageId,
-      });
+      batchItemFailures.push({ itemIdentifier: record.messageId });
     }
   }
 
@@ -106,11 +113,8 @@ export const handler = async (event: SQSEvent) => {
       await batchWriteLogs(logs);
     }
   } catch {
-    // if batch write fails completely, fail all remaining
     for (const record of event.Records) {
-      batchItemFailures.push({
-        itemIdentifier: record.messageId,
-      });
+      batchItemFailures.push({ itemIdentifier: record.messageId });
     }
   }
 

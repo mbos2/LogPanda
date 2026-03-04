@@ -21,7 +21,7 @@ export class LogpandaStack extends cdk.Stack {
       API_RATE_LIMIT: 2000,
       API_BURST_LIMIT: 4000,
 
-      WORKER_CONCURRENCY: 0, // 0 = no reserved concurrency
+      WORKER_CONCURRENCY: undefined,
       WORKER_BATCH_SIZE: 10,
       WORKER_BATCH_WINDOW_SECONDS: 3,
 
@@ -31,6 +31,8 @@ export class LogpandaStack extends cdk.Stack {
       QUEUE_VISIBILITY_TIMEOUT_SECONDS: 30,
       QUEUE_RETENTION_DAYS: 4,
       DLQ_MAX_RECEIVE_COUNT: 5,
+
+      LOG_RETENTION_DAYS: null as number | null,
     };
 
     // Lambda log group helper
@@ -184,6 +186,7 @@ export class LogpandaStack extends cdk.Stack {
       },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: tableRemovalPolicy,
+      timeToLiveAttribute: "expiresAt",
     });
 
     auditLogsTable.addGlobalSecondaryIndex({
@@ -496,6 +499,10 @@ export class LogpandaStack extends cdk.Stack {
         logGroup: createLambdaLogGroup(this, "AuditLogsWorkerLambda"),
         environment: {
           AUDIT_LOGS_TABLE_NAME: auditLogsTable.tableName,
+          LOG_RETENTION_DAYS:
+            CONFIG.LOG_RETENTION_DAYS !== null
+              ? CONFIG.LOG_RETENTION_DAYS.toString()
+              : "",
         },
       },
     );

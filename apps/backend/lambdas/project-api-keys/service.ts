@@ -2,9 +2,9 @@ import crypto from "crypto";
 import argon2 from "argon2";
 import {
   createApiKey,
-  deleteApiKey,
   getApiKeyById,
   listApiKeysByProject,
+  deactivateApiKey,
 } from "./repository";
 import { ProjectApiKey } from "./types";
 import { HttpError } from "../shared/http-error";
@@ -57,15 +57,27 @@ export const createProjectApiKeysService = (deps: ServiceDeps) => {
     );
 
     if (!membership || membership.role !== ORGANIZATION_ROLES.OWNER) {
-      throw new HttpError(403, "FORBIDDEN", "Only owner can delete API key");
+      throw new HttpError(
+        403,
+        "FORBIDDEN",
+        "Only owner can deactivate API key",
+      );
     }
   };
 
   const create = async (projectId: string, name: string, userId: string) => {
     await assertCreatePermission(projectId, userId);
 
-    const plainKey = crypto.randomBytes(32).toString("hex");
-    const keyHash = await argon2.hash(plainKey);
+    const existing = await listApiKeysByProject(deps.tableName, projectId);
+
+    for (const key of existing) {
+      if (key.isActive) {
+        await deactivateApiKey(deps.tableName, key.apiKeyId);
+      }
+    }
+
+    const secret = crypto.randomBytes(32).toString("hex");
+    const keyHash = await argon2.hash(secret);
 
     const apiKey: ProjectApiKey = {
       apiKeyId: crypto.randomUUID(),
@@ -81,7 +93,7 @@ export const createProjectApiKeysService = (deps: ServiceDeps) => {
 
     return {
       apiKeyId: apiKey.apiKeyId,
-      plainKey,
+      plainKey: `lp_${apiKey.apiKeyId}_${secret}`,
     };
   };
 
@@ -94,7 +106,7 @@ export const createProjectApiKeysService = (deps: ServiceDeps) => {
 
     await assertDeletePermission(key.projectId, userId);
 
-    await deleteApiKey(deps.tableName, apiKeyId);
+    await deactivateApiKey(deps.tableName, apiKeyId);
   };
 
   const list = async (projectId: string, userId: string) => {

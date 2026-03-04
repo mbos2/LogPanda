@@ -1,24 +1,24 @@
 import { APIGatewayProxyEventV2 } from "aws-lambda";
 import { randomUUID } from "crypto";
 import { SQSClient, SendMessageCommand } from "@aws-sdk/client-sqs";
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient, GetCommand } from "@aws-sdk/lib-dynamodb";
+import argon2 from "argon2";
 import { z } from "zod";
-import { ok, errorResponse } from "../shared/response";
+import { errorResponse } from "../shared/response";
 import { HttpError } from "../shared/http-error";
 
-// 🔥 Make sure this dependency is installed:
-// pnpm --filter backend add @aws-sdk/client-sqs
-
 const queueUrl = process.env.AUDIT_LOGS_QUEUE_URL as string;
+const apiKeysTableName = process.env.API_KEYS_TABLE_NAME as string;
 
-if (!queueUrl) {
-  throw new Error("AUDIT_LOGS_QUEUE_URL not defined");
-}
+if (!queueUrl) throw new Error("AUDIT_LOGS_QUEUE_URL not defined");
+if (!apiKeysTableName) throw new Error("API_KEYS_TABLE_NAME not defined");
 
 const sqsClient = new SQSClient({});
+const ddbClient = new DynamoDBClient({});
+const docClient = DynamoDBDocumentClient.from(ddbClient);
 
-// ✅ Zod 4 correct record usage
 const IngestSchema = z.object({
-  projectId: z.string().min(1),
   level: z.enum(["INFO", "WARN", "ERROR"]),
   message: z.string().min(1),
   metadata: z.record(z.string(), z.any()).optional(),
@@ -26,26 +26,61 @@ const IngestSchema = z.object({
 
 type IngestBody = z.infer<typeof IngestSchema>;
 
+function parseApiKey(raw: string): { apiKeyId: string; secret: string } {
+  const parts = raw.split("_");
+
+  if (parts.length !== 3 || parts[0] !== "lp") {
+    throw new HttpError(401, "INVALID_API_KEY", "Invalid API key format");
+  }
+
+  return {
+    apiKeyId: parts[1],
+    secret: parts[2],
+  };
+}
+
 export const handler = async (event: APIGatewayProxyEventV2) => {
   try {
     if (!event.body) {
       throw new HttpError(400, "INVALID_BODY", "Request body is required");
     }
 
-    const apiKey = event.headers["x-api-key"];
+    const rawApiKey = event.headers["x-api-key"];
 
-    if (!apiKey) {
+    if (!rawApiKey) {
       throw new HttpError(401, "MISSING_API_KEY", "API key is required");
     }
 
-    // 🔥 TODO: Replace this with your real API key validation logic
-    // const resolvedProjectId = await validateApiKey(apiKey);
+    const { apiKeyId, secret } = parseApiKey(rawApiKey);
+
+    const keyResult = await docClient.send(
+      new GetCommand({
+        TableName: apiKeysTableName,
+        Key: { apiKeyId },
+      }),
+    );
+
+    const keyItem = keyResult.Item;
+
+    if (!keyItem) {
+      throw new HttpError(401, "INVALID_API_KEY", "API key not found");
+    }
+
+    if (!keyItem.isActive) {
+      throw new HttpError(403, "API_KEY_INACTIVE", "API key is inactive");
+    }
+
+    const isValid = await argon2.verify(keyItem.keyHash, secret);
+
+    if (!isValid) {
+      throw new HttpError(401, "INVALID_API_KEY", "Invalid API key");
+    }
 
     const parsed: IngestBody = IngestSchema.parse(JSON.parse(event.body));
 
     const logMessage = {
       logId: randomUUID(),
-      projectId: parsed.projectId,
+      projectId: keyItem.projectId,
       level: parsed.level,
       message: parsed.message,
       metadata: parsed.metadata,
@@ -59,7 +94,6 @@ export const handler = async (event: APIGatewayProxyEventV2) => {
       }),
     );
 
-    // 202 because it's queued, not written yet
     return {
       statusCode: 202,
       body: JSON.stringify({

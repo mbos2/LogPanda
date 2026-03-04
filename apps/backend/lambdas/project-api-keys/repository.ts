@@ -3,8 +3,8 @@ import {
   DynamoDBDocumentClient,
   PutCommand,
   GetCommand,
-  DeleteCommand,
   QueryCommand,
+  UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { ProjectApiKey } from "./types";
 
@@ -19,18 +19,6 @@ export const createApiKey = async (
     new PutCommand({
       TableName: tableName,
       Item: key,
-    }),
-  );
-};
-
-export const deleteApiKey = async (
-  tableName: string,
-  apiKeyId: string,
-): Promise<void> => {
-  await docClient.send(
-    new DeleteCommand({
-      TableName: tableName,
-      Key: { apiKeyId },
     }),
   );
 };
@@ -65,4 +53,20 @@ export const listApiKeysByProject = async (
   );
 
   return (result.Items as ProjectApiKey[]) ?? [];
+};
+
+export const deactivateApiKey = async (
+  tableName: string,
+  apiKeyId: string,
+): Promise<void> => {
+  await docClient.send(
+    new UpdateCommand({
+      TableName: tableName,
+      Key: { apiKeyId },
+      UpdateExpression: "SET isActive = :false",
+      ExpressionAttributeValues: {
+        ":false": false,
+      },
+    }),
+  );
 };
