@@ -381,7 +381,7 @@ export class LogpandaStack extends cdk.Stack {
       this,
       "ProjectApiKeysLambda",
       {
-        runtime: lambda.Runtime.NODEJS_20_X,
+        runtime: lambda.Runtime.NODEJS_24_X,
         entry: path.join(
           __dirname,
           "../../apps/backend/lambdas/project-api-keys/handler.ts",
@@ -419,7 +419,7 @@ export class LogpandaStack extends cdk.Stack {
       this,
       "AuditLogsIngestLambda",
       {
-        runtime: lambda.Runtime.NODEJS_20_X,
+        runtime: lambda.Runtime.NODEJS_24_X,
         entry: path.join(
           __dirname,
           "../../apps/backend/lambdas/audit-logs/ingest-handler.ts",
