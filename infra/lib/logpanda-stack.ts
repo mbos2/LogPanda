@@ -34,9 +34,8 @@ export class LogpandaStack extends cdk.Stack {
     };
 
     // Lambda log group helper
-    const createLambdaLogGroup = (id: string) =>
-      new logs.LogGroup(this, `${id}LogGroup`, {
-        logGroupName: `/aws/lambda/${id}`,
+    const createLambdaLogGroup = (scope: Construct, id: string) =>
+      new logs.LogGroup(scope, `${id}LogGroup`, {
         retention: logs.RetentionDays.ONE_MONTH,
         removalPolicy:
           envName === "prod"
@@ -254,7 +253,7 @@ export class LogpandaStack extends cdk.Stack {
           ORGANIZATIONS_TABLE_NAME: organizationsTable.tableName,
           ORGANIZATION_MEMBERS_TABLE_NAME: organizationMembersTable.tableName,
         },
-        logGroup: createLambdaLogGroup("OrganizationsLambda"),
+        logGroup: createLambdaLogGroup(this, "OrganizationsLambda"),
       },
     );
 
@@ -288,7 +287,7 @@ export class LogpandaStack extends cdk.Stack {
         environment: {
           ORGANIZATION_MEMBERS_TABLE_NAME: organizationMembersTable.tableName,
         },
-        logGroup: createLambdaLogGroup("OrganizationMembersLambda"),
+        logGroup: createLambdaLogGroup(this, "OrganizationMembersLambda"),
       },
     );
 
@@ -321,7 +320,7 @@ export class LogpandaStack extends cdk.Stack {
         PROJECTS_TABLE_NAME: projectsTable.tableName,
         ORGANIZATION_MEMBERS_TABLE_NAME: organizationMembersTable.tableName,
       },
-      logGroup: createLambdaLogGroup("ProjectsLambda"),
+      logGroup: createLambdaLogGroup(this, "ProjectsLambda"),
     });
 
     const projectsIntegration = new integrations.HttpLambdaIntegration(
@@ -356,7 +355,7 @@ export class LogpandaStack extends cdk.Stack {
           PROJECTS_TABLE_NAME: projectsTable.tableName,
           ORGANIZATION_MEMBERS_TABLE_NAME: organizationMembersTable.tableName,
         },
-        logGroup: createLambdaLogGroup("ProjectMembersLambda"),
+        logGroup: createLambdaLogGroup(this, "ProjectMembersLambda"),
       },
     );
 
@@ -395,7 +394,7 @@ export class LogpandaStack extends cdk.Stack {
           ORGANIZATION_MEMBERS_TABLE_NAME: organizationMembersTable.tableName,
           PROJECTS_TABLE_NAME: projectsTable.tableName,
         },
-        logGroup: createLambdaLogGroup("ProjectApiKeysLambda"),
+        logGroup: createLambdaLogGroup(this, "ProjectApiKeysLambda"),
       },
     );
 
@@ -427,7 +426,7 @@ export class LogpandaStack extends cdk.Stack {
         handler: "handler",
         memorySize: 256,
         timeout: cdk.Duration.seconds(10),
-        logGroup: createLambdaLogGroup("AuditLogsIngestLambda"),
+        logGroup: createLambdaLogGroup(this, "AuditLogsIngestLambda"),
         environment: {
           AUDIT_LOGS_QUEUE_URL: auditLogsQueue.queueUrl,
           API_KEYS_TABLE_NAME: apiKeysTable.tableName,
@@ -494,7 +493,7 @@ export class LogpandaStack extends cdk.Stack {
         memorySize: CONFIG.WORKER_MEMORY_MB,
         timeout: cdk.Duration.seconds(CONFIG.WORKER_TIMEOUT_SECONDS),
         reservedConcurrentExecutions: CONFIG.WORKER_CONCURRENCY,
-        logGroup: createLambdaLogGroup("AuditLogsWorkerLambda"),
+        logGroup: createLambdaLogGroup(this, "AuditLogsWorkerLambda"),
         environment: {
           AUDIT_LOGS_TABLE_NAME: auditLogsTable.tableName,
         },
