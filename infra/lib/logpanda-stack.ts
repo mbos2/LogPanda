@@ -333,7 +333,7 @@ export class LogpandaStack extends cdk.Stack {
         runtime: lambda.Runtime.NODEJS_24_X,
         entry: path.join(
           __dirname,
-          "../../apps/backend/dist/lambdas/project-members/handler.ts",
+          "../../apps/backend/lambdas/project-members/handler.ts",
         ),
         handler: "handler",
         environment: {
