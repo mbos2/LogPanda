@@ -453,7 +453,7 @@ export class LogpandaStack extends cdk.Stack {
         ORGANIZATION_MEMBERS_TABLE_NAME: organizationMembersTable.tableName,
         PROJECTS_TABLE_NAME: projectsTable.tableName,
       },
-      logRetention: logs.RetentionDays.ONE_MONTH,
+      logGroup: createLambdaLogGroup(this, "AuditLogsLambda"),
     });
 
     const auditLogsIntegration = new integrations.HttpLambdaIntegration(
@@ -525,7 +525,7 @@ export class LogpandaStack extends cdk.Stack {
         },
         memorySize: 256,
         timeout: cdk.Duration.seconds(10),
-        logRetention: logs.RetentionDays.ONE_MONTH,
+        logGroup: createLambdaLogGroup(this, id),
         environment: {
           USER_POOL_ID: userPool.userPoolId,
           USER_POOL_CLIENT_ID: userPoolClient.userPoolClientId,
