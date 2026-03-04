@@ -211,17 +211,6 @@ export class LogpandaStack extends cdk.Stack {
 
     const httpApi = new apigwv2.HttpApi(this, "LogpandaHttpApi", {
       apiName: `logpanda-api-${envName}`,
-      createDefaultStage: false,
-    });
-
-    new apigwv2.CfnStage(this, "LogpandaHttpApiStage", {
-      apiId: httpApi.apiId,
-      stageName: "$default",
-      autoDeploy: true,
-      defaultRouteSettings: {
-        throttlingRateLimit: apiRateLimit,
-        throttlingBurstLimit: apiBurstLimit,
-      },
     });
 
     /** LAMBDA */
