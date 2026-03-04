@@ -17,18 +17,25 @@ export class LogpandaStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
+    const CONFIG = {
+      API_RATE_LIMIT: 2000,
+      API_BURST_LIMIT: 4000,
+
+      WORKER_CONCURRENCY: 0, // 0 = no reserved concurrency
+      WORKER_BATCH_SIZE: 10,
+      WORKER_BATCH_WINDOW_SECONDS: 3,
+
+      WORKER_MEMORY_MB: 256,
+      WORKER_TIMEOUT_SECONDS: 15,
+
+      QUEUE_VISIBILITY_TIMEOUT_SECONDS: 30,
+      QUEUE_RETENTION_DAYS: 4,
+      DLQ_MAX_RECEIVE_COUNT: 5,
+    };
+
     const envName = props?.stackName?.split("-")[1] ?? "dev";
     const batchSize = Number(this.node.tryGetContext("batchSize") ?? 10);
     const batchWindow = Number(this.node.tryGetContext("batchWindow") ?? 3);
-    const workerConcurrency = Number(
-      this.node.tryGetContext("workerConcurrency") ?? 5,
-    );
-    const apiRateLimit = Number(
-      this.node.tryGetContext("apiRateLimit") ?? 2000,
-    );
-    const apiBurstLimit = Number(
-      this.node.tryGetContext("apiBurstLimit") ?? 4000,
-    );
 
     /** Cognito */
 
@@ -187,16 +194,18 @@ export class LogpandaStack extends cdk.Stack {
 
     const deadLetterQueue = new sqs.Queue(this, "AuditLogsDLQ", {
       queueName: `logpanda-${envName}-audit-logs-dlq`,
-      retentionPeriod: cdk.Duration.days(14),
+      retentionPeriod: cdk.Duration.days(CONFIG.QUEUE_RETENTION_DAYS),
     });
 
     const auditLogsQueue = new sqs.Queue(this, "AuditLogsQueue", {
       queueName: `logpanda-${envName}-audit-logs`,
-      visibilityTimeout: cdk.Duration.seconds(30),
-      retentionPeriod: cdk.Duration.days(4),
+      visibilityTimeout: cdk.Duration.seconds(
+        CONFIG.QUEUE_VISIBILITY_TIMEOUT_SECONDS,
+      ),
+      retentionPeriod: cdk.Duration.days(CONFIG.QUEUE_RETENTION_DAYS),
       deadLetterQueue: {
         queue: deadLetterQueue,
-        maxReceiveCount: 5,
+        maxReceiveCount: CONFIG.DLQ_MAX_RECEIVE_COUNT,
       },
     });
 
@@ -212,6 +221,14 @@ export class LogpandaStack extends cdk.Stack {
     const httpApi = new apigwv2.HttpApi(this, "LogpandaHttpApi", {
       apiName: `logpanda-api-${envName}`,
     });
+
+    httpApi.defaultStage?.node.defaultChild &&
+      ((
+        httpApi.defaultStage.node.defaultChild as apigwv2.CfnStage
+      ).defaultRouteSettings = {
+        throttlingRateLimit: CONFIG.API_RATE_LIMIT,
+        throttlingBurstLimit: CONFIG.API_BURST_LIMIT,
+      });
 
     /** LAMBDA */
     const organizationsLambda = new NodejsFunction(
@@ -414,7 +431,7 @@ export class LogpandaStack extends cdk.Stack {
     auditLogsQueue.grantSendMessages(auditLogsIngestLambda);
 
     const auditLogsLambda = new NodejsFunction(this, "AuditLogsLambda", {
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       entry: path.join(
         __dirname,
         "../../apps/backend/lambdas/audit-logs/handler.ts",
@@ -459,16 +476,16 @@ export class LogpandaStack extends cdk.Stack {
       this,
       "AuditLogsWorkerLambda",
       {
-        runtime: lambda.Runtime.NODEJS_20_X,
+        runtime: lambda.Runtime.NODEJS_24_X,
         entry: path.join(
           __dirname,
           "../../apps/backend/lambdas/audit-logs/worker-handler.ts",
         ),
         handler: "handler",
-        memorySize: 256,
-        timeout: cdk.Duration.seconds(15),
+        memorySize: CONFIG.WORKER_MEMORY_MB,
+        timeout: cdk.Duration.seconds(CONFIG.WORKER_TIMEOUT_SECONDS),
+        reservedConcurrentExecutions: CONFIG.WORKER_CONCURRENCY,
         logRetention: logs.RetentionDays.ONE_MONTH,
-        reservedConcurrentExecutions: workerConcurrency,
         environment: {
           AUDIT_LOGS_TABLE_NAME: auditLogsTable.tableName,
         },
@@ -477,8 +494,10 @@ export class LogpandaStack extends cdk.Stack {
 
     auditLogsWorkerLambda.addEventSource(
       new SqsEventSource(auditLogsQueue, {
-        batchSize,
-        maxBatchingWindow: cdk.Duration.seconds(batchWindow),
+        batchSize: CONFIG.WORKER_BATCH_SIZE,
+        maxBatchingWindow: cdk.Duration.seconds(
+          CONFIG.WORKER_BATCH_WINDOW_SECONDS,
+        ),
       }),
     );
 
