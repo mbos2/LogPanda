@@ -85,10 +85,34 @@ function parseMessage(record: SQSRecord): AuditLog {
   return body;
 }
 
-export const handler = async (event: SQSEvent): Promise<void> => {
-  if (!event.Records.length) return;
+export const handler = async (event: SQSEvent) => {
+  const batchItemFailures: { itemIdentifier: string }[] = [];
 
-  const logs: AuditLog[] = event.Records.map(parseMessage);
+  const logs: AuditLog[] = [];
 
-  await batchWriteLogs(logs);
+  for (const record of event.Records) {
+    try {
+      const parsed = parseMessage(record);
+      logs.push(parsed);
+    } catch {
+      batchItemFailures.push({
+        itemIdentifier: record.messageId,
+      });
+    }
+  }
+
+  try {
+    if (logs.length) {
+      await batchWriteLogs(logs);
+    }
+  } catch {
+    // if batch write fails completely, fail all remaining
+    for (const record of event.Records) {
+      batchItemFailures.push({
+        itemIdentifier: record.messageId,
+      });
+    }
+  }
+
+  return { batchItemFailures };
 };
