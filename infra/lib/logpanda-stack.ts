@@ -9,13 +9,26 @@ import * as path from "path";
 import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as apigwv2_authorizers from "aws-cdk-lib/aws-apigatewayv2-authorizers";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
-// import * as sqs from 'aws-cdk-lib/aws-sqs';
+import * as logs from "aws-cdk-lib/aws-logs";
+import * as sqs from "aws-cdk-lib/aws-sqs";
+import { SqsEventSource } from "aws-cdk-lib/aws-lambda-event-sources";
 
 export class LogpandaStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
     const envName = props?.stackName?.split("-")[1] ?? "dev";
+    const batchSize = Number(this.node.tryGetContext("batchSize") ?? 10);
+    const batchWindow = Number(this.node.tryGetContext("batchWindow") ?? 3);
+    const workerConcurrency = Number(
+      this.node.tryGetContext("workerConcurrency") ?? 5,
+    );
+    const apiRateLimit = Number(
+      this.node.tryGetContext("apiRateLimit") ?? 2000,
+    );
+    const apiBurstLimit = Number(
+      this.node.tryGetContext("apiBurstLimit") ?? 4000,
+    );
 
     /** Cognito */
 
@@ -59,6 +72,9 @@ export class LogpandaStack extends cdk.Stack {
 
     /** Dynamo DB */
 
+    const tableRemovalPolicy =
+      envName === "prod" ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY;
+
     const organizationsTable = new dynamodb.Table(this, "OrganizationsTable", {
       tableName: `logpanda-organizations-${envName}`,
       partitionKey: {
@@ -66,7 +82,7 @@ export class LogpandaStack extends cdk.Stack {
         type: dynamodb.AttributeType.STRING,
       },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: RemovalPolicy.DESTROY,
+      removalPolicy: tableRemovalPolicy,
     });
 
     const organizationMembersTable = new dynamodb.Table(
@@ -80,7 +96,7 @@ export class LogpandaStack extends cdk.Stack {
         },
         sortKey: { name: "userId", type: dynamodb.AttributeType.STRING },
         billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-        removalPolicy: RemovalPolicy.DESTROY,
+        removalPolicy: tableRemovalPolicy,
       },
     );
 
@@ -96,7 +112,7 @@ export class LogpandaStack extends cdk.Stack {
       tableName: `logpanda-projects-${envName}`,
       partitionKey: { name: "projectId", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: RemovalPolicy.DESTROY,
+      removalPolicy: tableRemovalPolicy,
     });
 
     projectsTable.addGlobalSecondaryIndex({
@@ -118,7 +134,7 @@ export class LogpandaStack extends cdk.Stack {
         },
         sortKey: { name: "userId", type: dynamodb.AttributeType.STRING },
         billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-        removalPolicy: RemovalPolicy.DESTROY,
+        removalPolicy: tableRemovalPolicy,
       },
     );
 
@@ -129,10 +145,7 @@ export class LogpandaStack extends cdk.Stack {
         type: dynamodb.AttributeType.STRING,
       },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy:
-        envName === "prod"
-          ? cdk.RemovalPolicy.RETAIN
-          : cdk.RemovalPolicy.DESTROY,
+      removalPolicy: tableRemovalPolicy,
     });
 
     apiKeysTable.addGlobalSecondaryIndex({
@@ -155,10 +168,7 @@ export class LogpandaStack extends cdk.Stack {
         type: dynamodb.AttributeType.STRING,
       },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy:
-        envName === "prod"
-          ? cdk.RemovalPolicy.RETAIN
-          : cdk.RemovalPolicy.DESTROY,
+      removalPolicy: tableRemovalPolicy,
     });
 
     auditLogsTable.addGlobalSecondaryIndex({
@@ -173,7 +183,24 @@ export class LogpandaStack extends cdk.Stack {
       },
     });
 
-    /** HTTP API (Lambda) */
+    /** SQS */
+
+    const deadLetterQueue = new sqs.Queue(this, "AuditLogsDLQ", {
+      queueName: `logpanda-${envName}-audit-logs-dlq`,
+      retentionPeriod: cdk.Duration.days(14),
+    });
+
+    const auditLogsQueue = new sqs.Queue(this, "AuditLogsQueue", {
+      queueName: `logpanda-${envName}-audit-logs`,
+      visibilityTimeout: cdk.Duration.seconds(30),
+      retentionPeriod: cdk.Duration.days(4),
+      deadLetterQueue: {
+        queue: deadLetterQueue,
+        maxReceiveCount: 5,
+      },
+    });
+
+    /** HTTP API*/
     const jwtAuthorizer = new apigwv2_authorizers.HttpJwtAuthorizer(
       "LogpandaJwtAuthorizer",
       `https://cognito-idp.${this.region}.amazonaws.com/${userPool.userPoolId}`,
@@ -184,8 +211,20 @@ export class LogpandaStack extends cdk.Stack {
 
     const httpApi = new apigwv2.HttpApi(this, "LogpandaHttpApi", {
       apiName: `logpanda-api-${envName}`,
+      createDefaultStage: false,
     });
 
+    new apigwv2.CfnStage(this, "LogpandaHttpApiStage", {
+      apiId: httpApi.apiId,
+      stageName: "$default",
+      autoDeploy: true,
+      defaultRouteSettings: {
+        throttlingRateLimit: apiRateLimit,
+        throttlingBurstLimit: apiBurstLimit,
+      },
+    });
+
+    /** LAMBDA */
     const organizationsLambda = new NodejsFunction(
       this,
       "OrganizationsLambda",
@@ -200,6 +239,7 @@ export class LogpandaStack extends cdk.Stack {
           ORGANIZATIONS_TABLE_NAME: organizationsTable.tableName,
           ORGANIZATION_MEMBERS_TABLE_NAME: organizationMembersTable.tableName,
         },
+        logRetention: logs.RetentionDays.ONE_MONTH,
       },
     );
 
@@ -233,6 +273,7 @@ export class LogpandaStack extends cdk.Stack {
         environment: {
           ORGANIZATION_MEMBERS_TABLE_NAME: organizationMembersTable.tableName,
         },
+        logRetention: logs.RetentionDays.ONE_MONTH,
       },
     );
 
@@ -265,6 +306,7 @@ export class LogpandaStack extends cdk.Stack {
         PROJECTS_TABLE_NAME: projectsTable.tableName,
         ORGANIZATION_MEMBERS_TABLE_NAME: organizationMembersTable.tableName,
       },
+      logRetention: logs.RetentionDays.ONE_MONTH,
     });
 
     const projectsIntegration = new integrations.HttpLambdaIntegration(
@@ -284,23 +326,22 @@ export class LogpandaStack extends cdk.Stack {
       authorizer: jwtAuthorizer,
     });
 
-    const projectMembersLambda = new lambda.Function(
+    const projectMembersLambda = new NodejsFunction(
       this,
       "ProjectMembersLambda",
       {
         runtime: lambda.Runtime.NODEJS_24_X,
-        handler: "handler.handler",
-        code: lambda.Code.fromAsset(
-          path.join(
-            __dirname,
-            "../../apps/backend/dist/lambdas/project-members",
-          ),
+        entry: path.join(
+          __dirname,
+          "../../apps/backend/dist/lambdas/project-members/handler.ts",
         ),
+        handler: "handler",
         environment: {
           PROJECT_MEMBERS_TABLE_NAME: projectMembersTable.tableName,
           PROJECTS_TABLE_NAME: projectsTable.tableName,
           ORGANIZATION_MEMBERS_TABLE_NAME: organizationMembersTable.tableName,
         },
+        logRetention: logs.RetentionDays.ONE_MONTH,
       },
     );
 
@@ -339,6 +380,7 @@ export class LogpandaStack extends cdk.Stack {
           ORGANIZATION_MEMBERS_TABLE_NAME: organizationMembersTable.tableName,
           PROJECTS_TABLE_NAME: projectsTable.tableName,
         },
+        logRetention: logs.RetentionDays.ONE_MONTH,
       },
     );
 
@@ -368,17 +410,19 @@ export class LogpandaStack extends cdk.Stack {
           "../../apps/backend/lambdas/audit-logs/ingest-handler.ts",
         ),
         handler: "handler",
-        bundling: {
-          minify: true,
-        },
+        memorySize: 256,
+        timeout: cdk.Duration.seconds(10),
+        logRetention: logs.RetentionDays.ONE_MONTH,
         environment: {
-          AUDIT_LOGS_TABLE_NAME: auditLogsTable.tableName,
-          ORGANIZATION_MEMBERS_TABLE_NAME: organizationMembersTable.tableName,
-          PROJECTS_TABLE_NAME: projectsTable.tableName,
+          AUDIT_LOGS_QUEUE_URL: auditLogsQueue.queueUrl,
           API_KEYS_TABLE_NAME: apiKeysTable.tableName,
+          PROJECTS_TABLE_NAME: projectsTable.tableName,
         },
       },
     );
+
+    // SQS permission
+    auditLogsQueue.grantSendMessages(auditLogsIngestLambda);
 
     const auditLogsLambda = new NodejsFunction(this, "AuditLogsLambda", {
       runtime: lambda.Runtime.NODEJS_20_X,
@@ -395,6 +439,7 @@ export class LogpandaStack extends cdk.Stack {
         ORGANIZATION_MEMBERS_TABLE_NAME: organizationMembersTable.tableName,
         PROJECTS_TABLE_NAME: projectsTable.tableName,
       },
+      logRetention: logs.RetentionDays.ONE_MONTH,
     });
 
     const auditLogsIntegration = new integrations.HttpLambdaIntegration(
@@ -420,23 +465,57 @@ export class LogpandaStack extends cdk.Stack {
       integration: auditLogsIngestIntegration,
     });
 
-    /** AUTH LAMBDAS */
-    const createAuthLambda = (id: string, assetPath: string) =>
-      new lambda.Function(this, id, {
-        runtime: lambda.Runtime.NODEJS_24_X,
-        handler: "handler.handler",
-        code: lambda.Code.fromAsset(
-          path.join(
-            __dirname,
-            "../../apps/backend/dist/lambdas/auth",
-            assetPath,
-          ),
+    /** WORKER LAMBDA FOR LOGS */
+    const auditLogsWorkerLambda = new NodejsFunction(
+      this,
+      "AuditLogsWorkerLambda",
+      {
+        runtime: lambda.Runtime.NODEJS_20_X,
+        entry: path.join(
+          __dirname,
+          "../../apps/backend/lambdas/audit-logs/worker-handler.ts",
         ),
+        handler: "handler",
+        memorySize: 256,
+        timeout: cdk.Duration.seconds(15),
+        logRetention: logs.RetentionDays.ONE_MONTH,
+        reservedConcurrentExecutions: workerConcurrency,
+        environment: {
+          AUDIT_LOGS_TABLE_NAME: auditLogsTable.tableName,
+        },
+      },
+    );
+
+    auditLogsWorkerLambda.addEventSource(
+      new SqsEventSource(auditLogsQueue, {
+        batchSize,
+        maxBatchingWindow: cdk.Duration.seconds(batchWindow),
+      }),
+    );
+
+    /** AUTH LAMBDAS */
+    const createAuthLambda = (id: string, entryFile: string) =>
+      new NodejsFunction(this, id, {
+        runtime: lambda.Runtime.NODEJS_24_X,
+        entry: path.join(
+          __dirname,
+          "../../apps/backend/lambdas/auth",
+          entryFile,
+          "handler.ts",
+        ),
+        handler: "handler",
+        bundling: {
+          minify: true,
+        },
+        memorySize: 256,
+        timeout: cdk.Duration.seconds(10),
+        logRetention: logs.RetentionDays.ONE_MONTH,
         environment: {
           USER_POOL_ID: userPool.userPoolId,
           USER_POOL_CLIENT_ID: userPoolClient.userPoolClientId,
         },
       });
+
     const registerLambda = createAuthLambda("RegisterLambda", "register");
     const loginLambda = createAuthLambda("LoginLambda", "login");
     const refreshLambda = createAuthLambda("RefreshLambda", "refresh");
@@ -547,7 +626,7 @@ export class LogpandaStack extends cdk.Stack {
       authorizer: jwtAuthorizer,
     });
 
-    /** DB Access */
+    /** DB Access for Lambda*/
     organizationMembersTable.grantReadWriteData(organizationsLambda);
     organizationMembersTable.grantReadData(projectsLambda);
     organizationMembersTable.grantReadData(projectMembersLambda);
@@ -562,5 +641,7 @@ export class LogpandaStack extends cdk.Stack {
     apiKeysTable.grantReadWriteData(projectApiKeysLambda);
     apiKeysTable.grantReadData(auditLogsIngestLambda);
     auditLogsTable.grantReadWriteData(auditLogsIngestLambda);
+    auditLogsTable.grantWriteData(auditLogsWorkerLambda);
+    auditLogsQueue.grantConsumeMessages(auditLogsWorkerLambda);
   }
 }

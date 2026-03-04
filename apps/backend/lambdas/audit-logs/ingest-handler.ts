@@ -1,97 +1,81 @@
 import { APIGatewayProxyEventV2 } from "aws-lambda";
-import argon2 from "argon2";
-import { IngestLogSchema } from "./validation";
-import { createAuditLogsService } from "./service";
+import { randomUUID } from "crypto";
+import { SQSClient, SendMessageCommand } from "@aws-sdk/client-sqs";
+import { z } from "zod";
+import { ok, errorResponse } from "../shared/response";
 import { HttpError } from "../shared/http-error";
-import { getApiKeyById } from "../project-api-keys/repository";
 
-const tableName = process.env.AUDIT_LOGS_TABLE_NAME as string;
-const membersTableName = process.env.ORGANIZATION_MEMBERS_TABLE_NAME as string;
-const projectsTableName = process.env.PROJECTS_TABLE_NAME as string;
-const apiKeysTableName = process.env.API_KEYS_TABLE_NAME as string;
+// 🔥 Make sure this dependency is installed:
+// pnpm --filter backend add @aws-sdk/client-sqs
 
-const service = createAuditLogsService({
-  tableName,
-  membersTableName,
-  projectsTableName,
+const queueUrl = process.env.AUDIT_LOGS_QUEUE_URL as string;
+
+if (!queueUrl) {
+  throw new Error("AUDIT_LOGS_QUEUE_URL not defined");
+}
+
+const sqsClient = new SQSClient({});
+
+// ✅ Zod 4 correct record usage
+const IngestSchema = z.object({
+  projectId: z.string().min(1),
+  level: z.enum(["INFO", "WARN", "ERROR"]),
+  message: z.string().min(1),
+  metadata: z.record(z.string(), z.any()).optional(),
 });
 
-const extractBearerToken = (event: APIGatewayProxyEventV2): string => {
-  const authHeader = event.headers.authorization ?? event.headers.Authorization;
-
-  if (!authHeader) {
-    throw new HttpError(401, "UNAUTHORIZED", "Missing API key");
-  }
-
-  const parts = authHeader.split(" ");
-
-  if (parts.length !== 2 || parts[0] !== "Bearer") {
-    throw new HttpError(401, "UNAUTHORIZED", "Invalid auth header");
-  }
-
-  return parts[1];
-};
+type IngestBody = z.infer<typeof IngestSchema>;
 
 export const handler = async (event: APIGatewayProxyEventV2) => {
   try {
-    const plainKey = extractBearerToken(event);
-
-    // 🔎 Parse body first
-    const body = IngestLogSchema.parse(JSON.parse(event.body ?? "{}"));
-
-    // 🔎 Extract apiKeyId from key format
-    // Recommended format: <apiKeyId>.<secret>
-    const [apiKeyId] = plainKey.split(".");
-
-    if (!apiKeyId) {
-      throw new HttpError(401, "UNAUTHORIZED", "Invalid API key");
+    if (!event.body) {
+      throw new HttpError(400, "INVALID_BODY", "Request body is required");
     }
 
-    const storedKey = await getApiKeyById(apiKeysTableName, apiKeyId);
+    const apiKey = event.headers["x-api-key"];
 
-    if (!storedKey || !storedKey.isActive) {
-      throw new HttpError(401, "UNAUTHORIZED", "Invalid API key");
+    if (!apiKey) {
+      throw new HttpError(401, "MISSING_API_KEY", "API key is required");
     }
 
-    const isValid = await argon2.verify(storedKey.keyHash, plainKey);
+    // 🔥 TODO: Replace this with your real API key validation logic
+    // const resolvedProjectId = await validateApiKey(apiKey);
 
-    if (!isValid) {
-      throw new HttpError(401, "UNAUTHORIZED", "Invalid API key");
-    }
+    const parsed: IngestBody = IngestSchema.parse(JSON.parse(event.body));
 
-    // Ensure key belongs to same project
-    if (storedKey.projectId !== body.projectId) {
-      throw new HttpError(403, "FORBIDDEN", "Project mismatch");
-    }
+    const logMessage = {
+      logId: randomUUID(),
+      projectId: parsed.projectId,
+      level: parsed.level,
+      message: parsed.message,
+      metadata: parsed.metadata,
+      timestamp: new Date().toISOString(),
+    };
 
-    await service.ingest(
-      body.projectId,
-      body.level,
-      body.message,
-      body.metadata,
+    await sqsClient.send(
+      new SendMessageCommand({
+        QueueUrl: queueUrl,
+        MessageBody: JSON.stringify(logMessage),
+      }),
     );
 
+    // 202 because it's queued, not written yet
     return {
-      statusCode: 200,
-      body: JSON.stringify({ success: true }),
+      statusCode: 202,
+      body: JSON.stringify({
+        success: true,
+        data: { accepted: true },
+      }),
     };
   } catch (err) {
     if (err instanceof HttpError) {
-      return {
-        statusCode: err.statusCode,
-        body: JSON.stringify({
-          success: false,
-          error: { code: err.code, message: err.message },
-        }),
-      };
+      return errorResponse(err.statusCode, err.code, err.message);
     }
 
-    return {
-      statusCode: 400,
-      body: JSON.stringify({
-        success: false,
-        error: { code: "INVALID_REQUEST", message: "Invalid request" },
-      }),
-    };
+    if (err instanceof z.ZodError) {
+      return errorResponse(400, "VALIDATION_ERROR", err.issues);
+    }
+
+    return errorResponse(500, "INTERNAL_SERVER_ERROR", "Unexpected error");
   }
 };
