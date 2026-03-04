@@ -1,0 +1,17 @@
+{
+  "name": "@logpanda/sdk",
+  "version": "1.0.0",
+  "description": "Official LogPanda server-side SDK",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "axios": "^1.13.6"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

@@ -149,11 +149,28 @@ export class LogpandaStack extends cdk.Stack {
     });
 
     const auditLogsTable = new dynamodb.Table(this, "AuditLogsTable", {
-      tableName: `logpanda-audit-logs-${envName}`,
-      partitionKey: { name: "projectId", type: dynamodb.AttributeType.STRING },
-      sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
+      tableName: `logpanda-${envName}-audit-logs`,
+      partitionKey: {
+        name: "logId",
+        type: dynamodb.AttributeType.STRING,
+      },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: RemovalPolicy.DESTROY,
+      removalPolicy:
+        envName === "prod"
+          ? cdk.RemovalPolicy.RETAIN
+          : cdk.RemovalPolicy.DESTROY,
+    });
+
+    auditLogsTable.addGlobalSecondaryIndex({
+      indexName: "projectId-timestamp-index",
+      partitionKey: {
+        name: "projectId",
+        type: dynamodb.AttributeType.STRING,
+      },
+      sortKey: {
+        name: "timestamp",
+        type: dynamodb.AttributeType.STRING,
+      },
     });
 
     /** HTTP API (Lambda) */
@@ -341,6 +358,68 @@ export class LogpandaStack extends cdk.Stack {
       authorizer: jwtAuthorizer,
     });
 
+    const auditLogsIngestLambda = new NodejsFunction(
+      this,
+      "AuditLogsIngestLambda",
+      {
+        runtime: lambda.Runtime.NODEJS_20_X,
+        entry: path.join(
+          __dirname,
+          "../../apps/backend/lambdas/audit-logs/ingest-handler.ts",
+        ),
+        handler: "handler",
+        bundling: {
+          minify: true,
+        },
+        environment: {
+          AUDIT_LOGS_TABLE_NAME: auditLogsTable.tableName,
+          ORGANIZATION_MEMBERS_TABLE_NAME: organizationMembersTable.tableName,
+          PROJECTS_TABLE_NAME: projectsTable.tableName,
+          API_KEYS_TABLE_NAME: apiKeysTable.tableName,
+        },
+      },
+    );
+
+    const auditLogsLambda = new NodejsFunction(this, "AuditLogsLambda", {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      entry: path.join(
+        __dirname,
+        "../../apps/backend/lambdas/audit-logs/handler.ts",
+      ),
+      handler: "handler",
+      bundling: {
+        minify: true,
+      },
+      environment: {
+        AUDIT_LOGS_TABLE_NAME: auditLogsTable.tableName,
+        ORGANIZATION_MEMBERS_TABLE_NAME: organizationMembersTable.tableName,
+        PROJECTS_TABLE_NAME: projectsTable.tableName,
+      },
+    });
+
+    const auditLogsIntegration = new integrations.HttpLambdaIntegration(
+      "AuditLogsIntegration",
+      auditLogsLambda,
+    );
+
+    const auditLogsIngestIntegration = new integrations.HttpLambdaIntegration(
+      "AuditLogsIngestIntegration",
+      auditLogsIngestLambda,
+    );
+
+    httpApi.addRoutes({
+      path: "/audit-logs",
+      methods: [apigwv2.HttpMethod.GET],
+      integration: auditLogsIntegration,
+      authorizer: jwtAuthorizer,
+    });
+
+    httpApi.addRoutes({
+      path: "/ingest",
+      methods: [apigwv2.HttpMethod.POST],
+      integration: auditLogsIngestIntegration,
+    });
+
     /** AUTH LAMBDAS */
     const createAuthLambda = (id: string, assetPath: string) =>
       new lambda.Function(this, id, {
@@ -473,11 +552,15 @@ export class LogpandaStack extends cdk.Stack {
     organizationMembersTable.grantReadData(projectsLambda);
     organizationMembersTable.grantReadData(projectMembersLambda);
     organizationMembersTable.grantReadData(projectApiKeysLambda);
+    organizationMembersTable.grantReadData(auditLogsIngestLambda);
     organizationsTable.grantReadWriteData(organizationsLambda);
     projectsTable.grantReadWriteData(projectsLambda);
     projectsTable.grantReadData(projectMembersLambda);
     projectsTable.grantReadData(projectApiKeysLambda);
+    projectsTable.grantReadData(auditLogsIngestLambda);
     projectMembersTable.grantReadWriteData(projectMembersLambda);
     apiKeysTable.grantReadWriteData(projectApiKeysLambda);
+    apiKeysTable.grantReadData(auditLogsIngestLambda);
+    auditLogsTable.grantReadWriteData(auditLogsIngestLambda);
   }
 }
