@@ -4,15 +4,7 @@ import {
   DynamoDBDocumentClient,
   BatchWriteCommand,
 } from "@aws-sdk/lib-dynamodb";
-
-interface AuditLog {
-  logId: string;
-  projectId: string;
-  level: "INFO" | "WARN" | "ERROR";
-  message: string;
-  metadata?: Record<string, string | number | boolean | null>;
-  timestamp: string;
-}
+import { AuditLog } from "./types";
 
 const client = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(client);

@@ -6,7 +6,7 @@ export type JsonValue =
   | JsonValue[]
   | { [key: string]: JsonValue };
 
-export type LogLevel = "INFO" | "WARN" | "ERROR";
+export type LogLevel = "INFO" | "WARN" | "ERROR" | "DEBUG" | "SECURITY";
 
 export interface AuditLog {
   logId: string;

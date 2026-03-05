@@ -3,7 +3,6 @@ export {
   LOG_LEVELS,
   LogLevel,
   LogEvent,
-  Actor,
   LogPandaOptions,
   LogPandaResponse,
   LogPandaError,

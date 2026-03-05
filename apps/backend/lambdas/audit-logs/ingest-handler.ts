@@ -19,7 +19,7 @@ const ddbClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(ddbClient);
 
 const IngestSchema = z.object({
-  level: z.enum(["INFO", "WARN", "ERROR"]),
+  level: z.enum(["INFO", "WARN", "ERROR", "DEBUG", "SECURITY"]),
   message: z.string().min(1),
   metadata: z.record(z.string(), z.any()).optional(),
 });
