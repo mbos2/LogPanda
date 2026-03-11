@@ -19,7 +19,12 @@
       }
     ],
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "@lib/*": ["./lib/*"],
+      "@types": ["./lib/types/*"],
+      "@services": ["./lib/services/*"],
+      "@components": ["./components"],
+      "@context": ["./context"]
     }
   },
   "include": [
@@ -28,7 +33,8 @@
     "**/*.tsx",
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts",
-    "**/*.mts"
+    "**/*.mts",
+
   ],
   "exclude": ["node_modules"]
 }

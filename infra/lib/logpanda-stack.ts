@@ -87,6 +87,9 @@ export class LogpandaStack extends cdk.Stack {
           userPassword: true,
           userSrp: true,
         },
+        accessTokenValidity: cdk.Duration.hours(24),
+        idTokenValidity: cdk.Duration.hours(24),
+        refreshTokenValidity: cdk.Duration.days(30),
       },
     );
 
