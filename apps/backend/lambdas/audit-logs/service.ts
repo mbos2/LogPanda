@@ -1,9 +1,10 @@
-import crypto from "crypto";
-import { createLog, listLogsByProject } from "./repository";
-import { AuditLog, JsonValue, LogLevel } from "./types";
+import { queryLogs } from "./repository";
 import { HttpError } from "../shared/http-error";
 import { getMembership } from "../organization-members/repository";
 import { getProjectById } from "../projects/repository";
+
+const DEFAULT_LIMIT = Number(process.env.LOGS_DEFAULT_PAGINATION_LIMIT ?? 100);
+const MAX_LIMIT = Number(process.env.LOGS_MAX_PAGINATION_LIMIT ?? 500);
 
 interface ServiceDeps {
   tableName: string;
@@ -12,18 +13,21 @@ interface ServiceDeps {
 }
 
 export const createAuditLogsService = (deps: ServiceDeps) => {
-  const resolveProject = async (projectId: string) => {
+  const list = async (
+    projectId: string,
+    userId: string,
+    options: {
+      limit?: number;
+      cursor?: string;
+      from?: string;
+      to?: string;
+      levels?: string[];
+    },
+  ) => {
     const project = await getProjectById(deps.projectsTableName, projectId);
-
     if (!project) {
-      throw new HttpError(404, "NOT_FOUND", "Project not found");
+      throw new HttpError(404, "PROJECT_NOT_FOUND", "Project not found");
     }
-
-    return project;
-  };
-
-  const assertProjectAccess = async (projectId: string, userId: string) => {
-    const project = await resolveProject(projectId);
 
     const membership = await getMembership(
       deps.membersTableName,
@@ -32,37 +36,32 @@ export const createAuditLogsService = (deps: ServiceDeps) => {
     );
 
     if (!membership) {
-      throw new HttpError(403, "FORBIDDEN", "No access to project");
+      throw new HttpError(403, "FORBIDDEN", "Access denied");
     }
-  };
 
-  const ingest = async (
-    projectId: string,
-    level: LogLevel,
-    message: string,
-    metadata?: Record<string, JsonValue>,
-  ): Promise<void> => {
-    await resolveProject(projectId);
+    const limit = Math.min(options.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
 
-    const log: AuditLog = {
-      logId: crypto.randomUUID(),
+    const cursor = options.cursor
+      ? JSON.parse(Buffer.from(options.cursor, "base64").toString("utf8"))
+      : undefined;
+
+    const result = await queryLogs<any>({
+      tableName: deps.tableName,
       projectId,
-      level,
-      message,
-      metadata,
-      timestamp: new Date().toISOString(),
+      from: options.from,
+      to: options.to,
+      levels: options.levels,
+      limit,
+      cursor,
+    });
+
+    return {
+      items: result.items,
+      nextCursor: result.nextCursor
+        ? Buffer.from(JSON.stringify(result.nextCursor)).toString("base64")
+        : null,
     };
-
-    await createLog(deps.tableName, log);
   };
 
-  const list = async (
-    projectId: string,
-    userId: string,
-  ): Promise<AuditLog[]> => {
-    await assertProjectAccess(projectId, userId);
-    return listLogsByProject(deps.tableName, projectId);
-  };
-
-  return { ingest, list };
+  return { list };
 };

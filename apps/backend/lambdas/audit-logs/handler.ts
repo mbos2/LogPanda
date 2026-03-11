@@ -3,8 +3,8 @@ import {
   APIGatewayProxyStructuredResultV2,
 } from "aws-lambda";
 import { extractJwtClaims } from "../shared/auth";
-import { createAuditLogsService } from "./service";
 import { HttpError } from "../shared/http-error";
+import { createAuditLogsService } from "./service";
 
 const tableName = process.env.AUDIT_LOGS_TABLE_NAME as string;
 const membersTableName = process.env.ORGANIZATION_MEMBERS_TABLE_NAME as string;
@@ -21,23 +21,26 @@ export const handler = async (
 ): Promise<APIGatewayProxyStructuredResultV2> => {
   try {
     const { sub } = extractJwtClaims(event);
-    const projectId = event.queryStringParameters?.projectId;
+    const q = event.queryStringParameters ?? {};
 
-    if (!projectId) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({
-          success: false,
-          error: { code: "INVALID_REQUEST", message: "projectId required" },
-        }),
-      };
+    if (!q.projectId) {
+      throw new HttpError(400, "INVALID_REQUEST", "projectId required");
     }
 
-    const logs = await service.list(projectId, sub);
+    const result = await service.list(q.projectId, sub, {
+      limit: q.limit ? Number(q.limit) : undefined,
+      cursor: q.cursor,
+      from: q.from,
+      to: q.to,
+      levels: q.level ? q.level.split(",") : undefined,
+    });
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ success: true, data: logs }),
+      body: JSON.stringify({
+        success: true,
+        data: result,
+      }),
     };
   } catch (err) {
     if (err instanceof HttpError) {
@@ -54,7 +57,10 @@ export const handler = async (
       statusCode: 500,
       body: JSON.stringify({
         success: false,
-        error: { code: "INTERNAL_ERROR", message: "Unexpected error" },
+        error: {
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Unexpected error",
+        },
       }),
     };
   }

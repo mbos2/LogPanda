@@ -33,6 +33,9 @@ export class LogpandaStack extends cdk.Stack {
       DLQ_MAX_RECEIVE_COUNT: 5,
 
       LOG_RETENTION_DAYS: null as number | null,
+
+      LOGS_DEFAULT_PAGINATION_LIMIT: 100,
+      LOGS_MAX_PAGINATION_LIMIT: 500,
     };
 
     // Lambda log group helper
@@ -455,6 +458,10 @@ export class LogpandaStack extends cdk.Stack {
         AUDIT_LOGS_TABLE_NAME: auditLogsTable.tableName,
         ORGANIZATION_MEMBERS_TABLE_NAME: organizationMembersTable.tableName,
         PROJECTS_TABLE_NAME: projectsTable.tableName,
+        LOGS_DEFAULT_PAGINATION_LIMIT: String(
+          CONFIG.LOGS_DEFAULT_PAGINATION_LIMIT,
+        ),
+        LOGS_MAX_PAGINATION_LIMIT: String(CONFIG.LOGS_MAX_PAGINATION_LIMIT),
       },
       logGroup: createLambdaLogGroup(this, "AuditLogsLambda"),
     });

@@ -1,43 +1,72 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
   DynamoDBDocumentClient,
-  PutCommand,
   QueryCommand,
+  QueryCommandInput,
 } from "@aws-sdk/lib-dynamodb";
-import { AuditLog } from "./types";
 
 const client = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(client);
 
-export const createLog = async (
-  tableName: string,
-  log: AuditLog,
-): Promise<void> => {
-  await docClient.send(
-    new PutCommand({
-      TableName: tableName,
-      Item: log,
-    }),
-  );
-};
+export interface QueryLogsInput {
+  tableName: string;
+  projectId: string;
+  from?: string;
+  to?: string;
+  levels?: string[];
+  limit: number;
+  cursor?: Record<string, any>;
+}
 
-export const listLogsByProject = async (
-  tableName: string,
-  projectId: string,
-  limit = 50,
-): Promise<AuditLog[]> => {
-  const result = await docClient.send(
-    new QueryCommand({
-      TableName: tableName,
-      IndexName: "projectId-timestamp-index",
-      KeyConditionExpression: "projectId = :pid",
-      ExpressionAttributeValues: {
-        ":pid": projectId,
-      },
-      ScanIndexForward: false,
-      Limit: limit,
-    }),
-  );
+export interface QueryLogsResult<T> {
+  items: T[];
+  nextCursor: Record<string, any> | null;
+}
 
-  return (result.Items as AuditLog[]) ?? [];
+export const queryLogs = async <T>({
+  tableName,
+  projectId,
+  from,
+  to,
+  levels,
+  limit,
+  cursor,
+}: QueryLogsInput): Promise<QueryLogsResult<T>> => {
+  const params: QueryCommandInput = {
+    TableName: tableName,
+    IndexName: "projectId-timestamp-index",
+    KeyConditionExpression: "#pid = :pid",
+    ExpressionAttributeNames: {
+      "#pid": "projectId",
+    },
+    ExpressionAttributeValues: {
+      ":pid": projectId,
+    },
+    Limit: limit,
+    ExclusiveStartKey: cursor,
+    ScanIndexForward: false,
+  };
+
+  if (from && to) {
+    params.KeyConditionExpression += " AND #ts BETWEEN :from AND :to";
+    params.ExpressionAttributeNames!["#ts"] = "timestamp";
+    params.ExpressionAttributeValues![":from"] = from;
+    params.ExpressionAttributeValues![":to"] = to;
+  }
+
+  if (levels && levels.length) {
+    params.FilterExpression =
+      levels.map((_, i) => `#lvl = :lvl${i}`).join(" OR ");
+    params.ExpressionAttributeNames!["#lvl"] = "level";
+    levels.forEach((l, i) => {
+      params.ExpressionAttributeValues![`:lvl${i}`] = l;
+    });
+  }
+
+  const res = await docClient.send(new QueryCommand(params));
+
+  return {
+    items: (res.Items as T[]) ?? [],
+    nextCursor: res.LastEvaluatedKey ?? null,
+  };
 };

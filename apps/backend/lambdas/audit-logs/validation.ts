@@ -13,7 +13,6 @@ const JsonSchema: z.ZodType<JsonValue> = z.lazy(() =>
 );
 
 export const IngestLogSchema = z.object({
-  projectId: z.string().min(1),
   level: z.enum(["INFO", "WARN", "ERROR", "DEBUG", "SECURITY"]),
   message: z.string().min(1),
   metadata: z.record(z.string(), JsonSchema).optional(),

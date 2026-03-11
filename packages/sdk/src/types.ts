@@ -7,7 +7,6 @@ export const LOG_LEVELS = {
 export type LogLevel = (typeof LOG_LEVELS)[keyof typeof LOG_LEVELS];
 
 export interface LogEvent {
-  projectId: string;
   level: LogLevel;
   message: string;
   metadata?: Record<string, string | number | boolean | null>;

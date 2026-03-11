@@ -7,6 +7,7 @@ import argon2 from "argon2";
 import { z } from "zod";
 import { errorResponse } from "../shared/response";
 import { HttpError } from "../shared/http-error";
+import { IngestLogSchema } from "./validation";
 
 const queueUrl = process.env.AUDIT_LOGS_QUEUE_URL as string;
 const apiKeysTableName = process.env.API_KEYS_TABLE_NAME as string;
@@ -18,13 +19,7 @@ const sqsClient = new SQSClient({});
 const ddbClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(ddbClient);
 
-const IngestSchema = z.object({
-  level: z.enum(["INFO", "WARN", "ERROR", "DEBUG", "SECURITY"]),
-  message: z.string().min(1),
-  metadata: z.record(z.string(), z.any()).optional(),
-});
-
-type IngestBody = z.infer<typeof IngestSchema>;
+type IngestBody = z.infer<typeof IngestLogSchema>;
 
 function parseApiKey(raw: string): { apiKeyId: string; secret: string } {
   const parts = raw.split("_");
@@ -76,7 +71,7 @@ export const handler = async (event: APIGatewayProxyEventV2) => {
       throw new HttpError(401, "INVALID_API_KEY", "Invalid API key");
     }
 
-    const parsed: IngestBody = IngestSchema.parse(JSON.parse(event.body));
+    const parsed: IngestBody = IngestLogSchema.parse(JSON.parse(event.body));
 
     const logMessage = {
       logId: randomUUID(),
