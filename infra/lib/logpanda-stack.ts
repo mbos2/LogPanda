@@ -566,6 +566,15 @@ export class LogpandaStack extends cdk.Stack {
       "UserByEmailLambda",
       "user-by-email",
     );
+    const confirmSignUpLambda = createAuthLambda(
+      "ConfirmSignUpLambda",
+      "confirm-signup",
+    );
+
+    const confirmSignUpIntegration = new integrations.HttpLambdaIntegration(
+      "ConfirmSignUpIntegration",
+      confirmSignUpLambda,
+    );
 
     const registerIntegration = new integrations.HttpLambdaIntegration(
       "RegisterIntegration",
@@ -657,6 +666,12 @@ export class LogpandaStack extends cdk.Stack {
       methods: [apigwv2.HttpMethod.GET],
       integration: userByEmailIntegration,
       authorizer: jwtAuthorizer,
+    });
+
+    httpApi.addRoutes({
+      path: "/auth/confirm-signup",
+      methods: [apigwv2.HttpMethod.POST],
+      integration: confirmSignUpIntegration,
     });
 
     /** DB Access for Lambda*/
