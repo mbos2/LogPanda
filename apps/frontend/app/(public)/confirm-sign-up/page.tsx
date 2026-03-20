@@ -1,16 +1,13 @@
 "use client";
 
-import { useState, type ChangeEvent, type JSX } from "react";
+import { useEffect, useState, type JSX } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Box,
+  Button,
   Grid,
   GridItem,
   Icon,
-  Button,
-  Field,
-  Fieldset,
-  Input,
   Link,
   Text,
 } from "@chakra-ui/react";
@@ -19,10 +16,7 @@ import { SiFoodpanda } from "react-icons/si";
 import { confirmSignUp } from "@lib/auth/auth-service";
 import { ApiErrorResponse } from "@lib/auth/types";
 
-interface ConfirmSignUpFormState {
-  email: string;
-  code: string;
-}
+type Status = "loading" | "success" | "error";
 
 const getErrorMessage = (error: unknown): string => {
   const apiError: ApiErrorResponse | undefined = (
@@ -31,62 +25,37 @@ const getErrorMessage = (error: unknown): string => {
     }
   )?.response?.data;
 
-  return apiError?.error?.message ?? "Failed to confirm your account.";
+  return apiError?.error?.message ?? "Failed to verify account.";
 };
 
 export default function ConfirmSignUpPage(): JSX.Element {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const token = searchParams.get("token");
 
-  const [form, setForm] = useState<ConfirmSignUpFormState>({
-    email: searchParams.get("email") ?? "",
-    code: "",
-  });
-  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
-  const [successMessage, setSuccessMessage] = useState<string>("");
-  const [errorMessage, setErrorMessage] = useState<string>("");
+  const [status, setStatus] = useState<Status>("loading");
+  const [message, setMessage] = useState<string>("Verifying your account...");
 
-  const handleChange =
-    (field: keyof ConfirmSignUpFormState) =>
-    (event: ChangeEvent<HTMLInputElement>): void => {
-      setForm(
-        (prev: ConfirmSignUpFormState): ConfirmSignUpFormState => ({
-          ...prev,
-          [field]: event.target.value,
-        }),
-      );
-
-      if (errorMessage) {
-        setErrorMessage("");
+  useEffect((): void => {
+    const run = async (): Promise<void> => {
+      if (!token) {
+        setStatus("error");
+        setMessage("Invalid verification link.");
+        return;
       }
 
-      if (successMessage) {
-        setSuccessMessage("");
+      try {
+        await confirmSignUp({ token });
+        setStatus("success");
+        setMessage("Your account has been successfully verified.");
+      } catch (error: unknown) {
+        setStatus("error");
+        setMessage(getErrorMessage(error));
       }
     };
 
-  const handleSubmit = async (): Promise<void> => {
-    try {
-      setIsSubmitting(true);
-      setErrorMessage("");
-      setSuccessMessage("");
-
-      await confirmSignUp({
-        email: form.email.trim(),
-        code: form.code.trim(),
-      });
-
-      setSuccessMessage("Your account has been successfully confirmed.");
-
-      setTimeout((): void => {
-        router.replace("/sign-in");
-      }, 1200);
-    } catch (error: unknown) {
-      setErrorMessage(getErrorMessage(error));
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+    void run();
+  }, [token]);
 
   return (
     <Box
@@ -99,97 +68,48 @@ export default function ConfirmSignUpPage(): JSX.Element {
       py={12}
     >
       <Box width="100%" px={{ base: 0, md: 4 }}>
-        <Grid templateRows="auto auto auto auto" gap="16px">
+        <Grid templateRows="auto auto auto" gap="16px">
           <GridItem display="grid" py={4} justifyContent="center">
             <Box fontSize="2xl" fontWeight="bold" color="#4b6f44">
               <Icon size="xl" color="#4b6f44">
                 <SiFoodpanda />
-              </Icon>{" "}
+              </Icon>
             </Box>
           </GridItem>
 
           <GridItem display="grid" gap={2}>
             <Box textAlign="center" fontSize="xl">
-              Confirm your account
+              Account verification
             </Box>
-            <Box color="gray.500" textAlign="center">
-              Enter the verification code we sent to your email.
-            </Box>
-          </GridItem>
-
-          <GridItem>
-            <Fieldset.Root>
-              <Fieldset.Content>
-                <Field.Root>
-                  <Field.Label>Email Address</Field.Label>
-                  <Input
-                    name="email"
-                    type="email"
-                    placeholder="🖂 name@company.com"
-                    value={form.email}
-                    onChange={handleChange("email")}
-                  />
-                </Field.Root>
-
-                <Field.Root>
-                  <Field.Label>Verification Code</Field.Label>
-                  <Input
-                    name="code"
-                    type="text"
-                    placeholder="Enter verification code"
-                    value={form.code}
-                    onChange={handleChange("code")}
-                  />
-                </Field.Root>
-              </Fieldset.Content>
-            </Fieldset.Root>
-          </GridItem>
-
-          {(errorMessage || successMessage) && (
-            <GridItem>
-              {errorMessage ? (
-                <Text color="red.500" textAlign="center">
-                  {errorMessage}
-                </Text>
-              ) : null}
-
-              {successMessage ? (
-                <Text color="#4b6f44" textAlign="center">
-                  {successMessage}
-                </Text>
-              ) : null}
-            </GridItem>
-          )}
-
-          <GridItem mt={2}>
-            <Button
-              w="full"
-              type="button"
-              alignSelf="flex-start"
-              size="xl"
-              bg="#4b6f44"
-              color="white"
-              onClick={(): void => {
-                void handleSubmit();
-              }}
-              disabled={
-                isSubmitting ||
-                form.email.trim().length === 0 ||
-                form.code.trim().length === 0
-              }
-              loading={isSubmitting}
+            <Text
+              textAlign="center"
+              color={status === "error" ? "red.500" : "gray.600"}
             >
-              Confirm Account
-            </Button>
+              {message}
+            </Text>
           </GridItem>
 
-          <GridItem textAlign="center" mt={8}>
-            <Link color="#4b6f44" href="/sign-in">
-              <Icon size="lg">
-                <FaRegArrowAltCircleLeft />
-              </Icon>{" "}
-              Back to Login
-            </Link>
+          <GridItem textAlign="center" mt={6}>
+            {status === "success" ? (
+              <Button
+                bg="#4b6f44"
+                color="white"
+                onClick={(): void => {
+                  router.replace("/sign-in");
+                }}
+              >
+                Go to Sign In
+              </Button>
+            ) : null}
+
+            {status === "error" ? (
+              <Link color="#4b6f44" href="/sign-in">
+                <Icon size="lg">
+                  <FaRegArrowAltCircleLeft />
+                </Icon>{" "}
+                Back to Login
+              </Link>
+            ) : null}
           </GridItem>
         </Grid>
       </Box>

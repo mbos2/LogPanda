@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ChangeEvent, type JSX } from "react";
+import { useRouter } from "next/navigation";
 import {
   Box,
   Grid,
@@ -15,8 +16,15 @@ import {
 } from "@chakra-ui/react";
 import { FaRegArrowAltCircleLeft } from "react-icons/fa";
 import { SiFoodpanda } from "react-icons/si";
-import { forgotPassword } from "@lib/auth/auth-service";
+import { confirmForgotPassword } from "@lib/auth/auth-service";
 import { ApiErrorResponse } from "@lib/auth/types";
+
+interface PasswordResetFormState {
+  email: string;
+  code: string;
+  password: string;
+  confirmPassword: string;
+}
 
 const getErrorMessage = (error: unknown): string => {
   const apiError: ApiErrorResponse | undefined = (
@@ -25,38 +33,73 @@ const getErrorMessage = (error: unknown): string => {
     }
   )?.response?.data;
 
-  return apiError?.error?.message ?? "Failed to send reset email.";
+  return apiError?.error?.message ?? "Failed to reset password.";
 };
 
-export default function ForgotPasswordPage(): JSX.Element {
-  const [email, setEmail] = useState<string>("");
+export default function PasswordResetPage(): JSX.Element {
+  const router = useRouter();
+
+  const [form, setForm] = useState<PasswordResetFormState>({
+    email: "",
+    code: "",
+    password: "",
+    confirmPassword: "",
+  });
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [successMessage, setSuccessMessage] = useState<string>("");
   const [errorMessage, setErrorMessage] = useState<string>("");
 
-  const handleChange = (event: ChangeEvent<HTMLInputElement>): void => {
-    setEmail(event.target.value);
+  const handleChange =
+    (field: keyof PasswordResetFormState) =>
+    (event: ChangeEvent<HTMLInputElement>): void => {
+      setForm(
+        (prev: PasswordResetFormState): PasswordResetFormState => ({
+          ...prev,
+          [field]: event.target.value,
+        }),
+      );
 
-    if (errorMessage) {
-      setErrorMessage("");
-    }
+      if (errorMessage) {
+        setErrorMessage("");
+      }
 
-    if (successMessage) {
-      setSuccessMessage("");
-    }
-  };
+      if (successMessage) {
+        setSuccessMessage("");
+      }
+    };
 
   const handleSubmit = async (): Promise<void> => {
+    if (
+      form.email.trim().length === 0 ||
+      form.code.trim().length === 0 ||
+      form.password.trim().length === 0 ||
+      form.confirmPassword.trim().length === 0
+    ) {
+      setErrorMessage("All fields are required.");
+      return;
+    }
+
+    if (form.password !== form.confirmPassword) {
+      setErrorMessage("Passwords do not match.");
+      return;
+    }
+
     try {
       setIsSubmitting(true);
       setErrorMessage("");
       setSuccessMessage("");
 
-      await forgotPassword({
-        email: email.trim(),
+      await confirmForgotPassword({
+        email: form.email.trim(),
+        code: form.code.trim(),
+        newPassword: form.password,
       });
 
-      setSuccessMessage("Password reset email sent. Please check your inbox.");
+      setSuccessMessage("Password reset successfully.");
+
+      setTimeout((): void => {
+        router.replace("/sign-in");
+      }, 1200);
     } catch (error: unknown) {
       setErrorMessage(getErrorMessage(error));
     } finally {
@@ -86,11 +129,10 @@ export default function ForgotPasswordPage(): JSX.Element {
 
           <GridItem display="grid" gap={2}>
             <Box textAlign="center" fontSize="xl">
-              Forgot Password?
+              Reset your password
             </Box>
             <Box color="gray.500" textAlign="center">
-              No worries, it happens. Enter your email address below and
-              we&apos;ll send you a link to reset your password.
+              Enter your email, verification code, and your new password.
             </Box>
           </GridItem>
 
@@ -103,8 +145,41 @@ export default function ForgotPasswordPage(): JSX.Element {
                     name="email"
                     type="email"
                     placeholder="🖂 name@company.com"
-                    value={email}
-                    onChange={handleChange}
+                    value={form.email}
+                    onChange={handleChange("email")}
+                  />
+                </Field.Root>
+
+                <Field.Root>
+                  <Field.Label>Verification Code</Field.Label>
+                  <Input
+                    name="code"
+                    type="text"
+                    placeholder="Enter verification code"
+                    value={form.code}
+                    onChange={handleChange("code")}
+                  />
+                </Field.Root>
+
+                <Field.Root>
+                  <Field.Label>New Password</Field.Label>
+                  <Input
+                    name="password"
+                    type="password"
+                    placeholder="🔒︎ ••••••••••"
+                    value={form.password}
+                    onChange={handleChange("password")}
+                  />
+                </Field.Root>
+
+                <Field.Root>
+                  <Field.Label>Confirm Password</Field.Label>
+                  <Input
+                    name="confirm-password"
+                    type="password"
+                    placeholder="ꗃ ••••••••••"
+                    value={form.confirmPassword}
+                    onChange={handleChange("confirmPassword")}
                   />
                 </Field.Root>
               </Fieldset.Content>
@@ -138,10 +213,16 @@ export default function ForgotPasswordPage(): JSX.Element {
               onClick={(): void => {
                 void handleSubmit();
               }}
-              disabled={isSubmitting || email.trim().length === 0}
+              disabled={
+                isSubmitting ||
+                form.email.trim().length === 0 ||
+                form.code.trim().length === 0 ||
+                form.password.trim().length === 0 ||
+                form.confirmPassword.trim().length === 0
+              }
               loading={isSubmitting}
             >
-              Send Reset Link
+              Reset Password
             </Button>
           </GridItem>
 

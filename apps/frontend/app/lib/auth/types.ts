@@ -33,8 +33,7 @@ export interface SignUpPayload {
 }
 
 export interface ConfirmSignUpPayload {
-  email: string;
-  code: string;
+  token: string;
 }
 
 export interface ForgotPasswordPayload {

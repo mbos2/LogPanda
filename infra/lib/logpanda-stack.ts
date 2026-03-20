@@ -109,6 +109,21 @@ export class LogpandaStack extends cdk.Stack {
       removalPolicy: tableRemovalPolicy,
     });
 
+    const emailVerificationTokensTable = new dynamodb.Table(
+      this,
+      "EmailVerificationTokensTable",
+      {
+        tableName: `logpanda-${envName}-email-verification-tokens`,
+        partitionKey: {
+          name: "tokenHash",
+          type: dynamodb.AttributeType.STRING,
+        },
+        billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+        removalPolicy: tableRemovalPolicy,
+        timeToLiveAttribute: "expiresAt",
+      },
+    );
+
     const organizationMembersTable = new dynamodb.Table(
       this,
       "OrganizationMembersTable",
@@ -572,6 +587,11 @@ export class LogpandaStack extends cdk.Stack {
       "confirm-signup",
     );
 
+    confirmSignUpLambda.addEnvironment(
+      "EMAIL_VERIFICATION_TOKENS_TABLE_NAME",
+      emailVerificationTokensTable.tableName,
+    );
+
     const customMessageLambda = new NodejsFunction(
       this,
       "CustomMessageLambda",
@@ -595,6 +615,8 @@ export class LogpandaStack extends cdk.Stack {
               : envName === "staging"
                 ? "https://staging.logpanda.dev"
                 : "https://dev.logpanda.dev",
+          EMAIL_VERIFICATION_TOKENS_TABLE_NAME:
+            emailVerificationTokensTable.tableName,
         },
       },
     );
@@ -729,5 +751,7 @@ export class LogpandaStack extends cdk.Stack {
     auditLogsTable.grantReadWriteData(auditLogsIngestLambda);
     auditLogsTable.grantWriteData(auditLogsWorkerLambda);
     auditLogsQueue.grantConsumeMessages(auditLogsWorkerLambda);
+    emailVerificationTokensTable.grantReadWriteData(customMessageLambda);
+    emailVerificationTokensTable.grantReadWriteData(confirmSignUpLambda);
   }
 }
