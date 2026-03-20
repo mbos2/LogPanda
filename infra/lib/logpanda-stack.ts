@@ -12,6 +12,7 @@ import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as sqs from "aws-cdk-lib/aws-sqs";
 import { SqsEventSource } from "aws-cdk-lib/aws-lambda-event-sources";
+import * as iam from "aws-cdk-lib/aws-iam";
 
 export class LogpandaStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -570,6 +571,43 @@ export class LogpandaStack extends cdk.Stack {
       "ConfirmSignUpLambda",
       "confirm-signup",
     );
+
+    const customMessageLambda = new NodejsFunction(
+      this,
+      "CustomMessageLambda",
+      {
+        runtime: lambda.Runtime.NODEJS_24_X,
+        entry: path.join(
+          __dirname,
+          "../../apps/backend/lambdas/auth/custom-message/handler.ts",
+        ),
+        handler: "handler",
+        bundling: {
+          minify: true,
+        },
+        memorySize: 256,
+        timeout: cdk.Duration.seconds(10),
+        logGroup: createLambdaLogGroup(this, "CustomMessageLambda"),
+        environment: {
+          FRONTEND_BASE_URL:
+            envName === "prod"
+              ? "https://logpanda.dev"
+              : envName === "staging"
+                ? "https://staging.logpanda.dev"
+                : "https://dev.logpanda.dev",
+        },
+      },
+    );
+
+    userPool.addTrigger(
+      cognito.UserPoolOperation.CUSTOM_MESSAGE,
+      customMessageLambda,
+    );
+
+    customMessageLambda.addPermission("AllowCognitoInvokeCustomMessage", {
+      principal: new iam.ServicePrincipal("cognito-idp.amazonaws.com"),
+      sourceArn: userPool.userPoolArn,
+    });
 
     const confirmSignUpIntegration = new integrations.HttpLambdaIntegration(
       "ConfirmSignUpIntegration",
