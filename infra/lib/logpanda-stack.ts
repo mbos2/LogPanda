@@ -48,8 +48,25 @@ export class LogpandaStack extends cdk.Stack {
             ? cdk.RemovalPolicy.RETAIN
             : cdk.RemovalPolicy.DESTROY,
       });
-
     const envName = props?.stackName?.split("-")[1] ?? "dev";
+
+    const frontendBaseUrl = process.env.FRONTEND_BASE_URL;
+    const sesVerifiedDomain = process.env.SES_VERIFIED_DOMAIN;
+    const sesFromEmail = process.env.SES_FROM_EMAIL;
+    const sesFromName = process.env.SES_FROM_NAME;
+    const sesReplyToEmail = process.env.SES_REPLY_TO_EMAIL;
+
+    if (!frontendBaseUrl) {
+      throw new Error("Missing FRONTEND_BASE_URL");
+    }
+
+    if (!sesVerifiedDomain) {
+      throw new Error("Missing SES_VERIFIED_DOMAIN");
+    }
+
+    if (!sesFromEmail) {
+      throw new Error("Missing SES_FROM_EMAIL");
+    }
 
     /** Cognito */
 
@@ -76,6 +93,13 @@ export class LogpandaStack extends cdk.Stack {
         requireSymbols: false,
       },
       accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
+      email: cognito.UserPoolEmail.withSES({
+        sesRegion: this.region,
+        sesVerifiedDomain,
+        fromEmail: sesFromEmail,
+        fromName: sesFromName,
+        replyTo: sesReplyToEmail,
+      }),
     });
 
     const userPoolClient = new cognito.UserPoolClient(
@@ -83,7 +107,7 @@ export class LogpandaStack extends cdk.Stack {
       "LogpandaUserPoolClient",
       {
         userPool,
-        generateSecret: false, // IMPORTANT for frontend
+        generateSecret: false,
         authFlows: {
           userPassword: true,
           userSrp: true,
@@ -609,12 +633,7 @@ export class LogpandaStack extends cdk.Stack {
         timeout: cdk.Duration.seconds(10),
         logGroup: createLambdaLogGroup(this, "CustomMessageLambda"),
         environment: {
-          FRONTEND_BASE_URL:
-            envName === "prod"
-              ? "https://logpanda.dev"
-              : envName === "staging"
-                ? "https://staging.logpanda.dev"
-                : "https://dev.logpanda.dev",
+          FRONTEND_BASE_URL: frontendBaseUrl,
           EMAIL_VERIFICATION_TOKENS_TABLE_NAME:
             emailVerificationTokensTable.tableName,
         },

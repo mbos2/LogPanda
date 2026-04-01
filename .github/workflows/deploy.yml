@@ -14,13 +14,23 @@ on:
         required: true
         type: choice
         options:
+          - dev
           - staging
           - production
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment: ${{ github.event.inputs.environment || 'dev' }}
+
+    environment: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || github.ref_name == 'dev' && 'dev' || github.ref_name == 'staging' && 'staging' || github.ref_name == 'prod' && 'production' || 'dev' }}
+
+    env:
+      DEPLOY_ENV: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || github.ref_name == 'dev' && 'dev' || github.ref_name == 'staging' && 'staging' || github.ref_name == 'prod' && 'production' || 'dev' }}
+      FRONTEND_BASE_URL: ${{ vars.FRONTEND_BASE_URL }}
+      SES_VERIFIED_DOMAIN: ${{ vars.SES_VERIFIED_DOMAIN }}
+      SES_FROM_EMAIL: ${{ vars.SES_FROM_EMAIL }}
+      SES_FROM_NAME: ${{ vars.SES_FROM_NAME }}
+      SES_REPLY_TO_EMAIL: ${{ vars.SES_REPLY_TO_EMAIL }}
 
     steps:
       - name: Checkout
@@ -53,8 +63,4 @@ jobs:
       - name: Deploy
         run: |
           cd infra
-          if [ "${{ github.event_name }}" = "push" ]; then
-            cdk deploy -c env=dev --require-approval never
-          else
-            cdk deploy -c env=${{ github.event.inputs.environment }} --require-approval never
-          fi
+          cdk deploy -c env=$DEPLOY_ENV --require-approval never
