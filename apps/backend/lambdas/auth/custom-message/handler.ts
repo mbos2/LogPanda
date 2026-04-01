@@ -39,6 +39,12 @@ const buildResetPasswordLink = (): string => {
 export const handler: CustomMessageTriggerHandler = async (
   event: CustomMessageTriggerEvent,
 ): Promise<CustomMessageTriggerEvent> => {
+  console.log("CUSTOM_MESSAGE_EVENT", {
+    triggerSource: event.triggerSource,
+    userName: event.userName,
+    email: event.request.userAttributes.email,
+  });
+
   const email = event.request.userAttributes.email ?? "";
 
   if (!email) {

@@ -122,9 +122,7 @@ export default function SignUpPage(): JSX.Element {
         lastName: nameParts.lastName,
       });
 
-      router.replace(
-        `/confirm-sign-up?email=${encodeURIComponent(form.email.trim())}`,
-      );
+      router.replace("/check-email");
     } catch (error: unknown) {
       setErrorMessage(getErrorMessage(error));
     } finally {
