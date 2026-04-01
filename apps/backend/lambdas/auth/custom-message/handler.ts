@@ -59,7 +59,7 @@ export const handler: CustomMessageTriggerHandler = async (
     const tokenHash = hashToken(rawToken);
 
     const expiresAt = Math.floor(Date.now() / 1000) + 60 * 60 * 24;
-
+    console.log("SIGNUP_BRANCH_ENTERED");
     await docClient.send(
       new PutCommand({
         TableName: tableName,
@@ -73,7 +73,7 @@ export const handler: CustomMessageTriggerHandler = async (
         },
       }),
     );
-
+    console.log("SIGNUP_TOKEN_STORED");
     const confirmLink = buildConfirmSignUpLink(rawToken);
 
     event.response.emailSubject = "Confirm your Log Panda account";
@@ -95,10 +95,15 @@ export const handler: CustomMessageTriggerHandler = async (
       </html>
     `;
 
+    console.log("SIGNUP_EMAIL_RESPONSE_SET", {
+      subject: event.response.emailSubject,
+      hasMessage: Boolean(event.response.emailMessage),
+    });
     return event;
   }
 
   if (event.triggerSource === "CustomMessage_ForgotPassword") {
+    console.log("FORGOT_PASSWORD_BRANCH_ENTERED");
     const codePlaceholder = event.request.codeParameter;
 
     if (!codePlaceholder) {
